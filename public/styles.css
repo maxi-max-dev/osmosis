@@ -185,9 +185,40 @@ h3 { font-size: 1.14rem; line-height: 1.5; margin: 30px 0 16px; }
 
 .source-line {
   color: #a8b6d3;
+  align-items: center;
+  display: flex;
   font-size: 0.88rem;
+  flex-wrap: wrap;
+  gap: 8px;
   line-height: 1.55;
   margin-bottom: 22px;
+}
+
+.source-line--observed { color: #b7d9d3; }
+
+.provenance-label {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  display: inline-block;
+  font-size: 0.63rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  padding: 5px 7px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.provenance-label--agent {
+  background: rgba(100, 136, 220, 0.13);
+  border-color: rgba(132, 163, 235, 0.37);
+  color: #bad0ff;
+}
+
+.provenance-label--observed {
+  background: rgba(67, 177, 156, 0.13);
+  border-color: rgba(103, 213, 190, 0.42);
+  color: #a8eadb;
 }
 
 .lesson-copy { color: #ebf0ff; font-size: 1.03rem; line-height: 1.72; margin-bottom: 0; }
@@ -273,9 +304,11 @@ button.card-summary:hover { border-color: rgba(152, 180, 242, 0.62); }
 .summary-state.review { background: rgba(222, 151, 166, 0.14); color: #ffbdca; }
 .summary-state.waiting { background: rgba(110, 136, 193, 0.18); color: #b9caee; }
 
-.summary-copy { display: grid; gap: 3px; min-width: 0; }
-.summary-copy strong { font-size: 0.88rem; font-weight: 730; }
-.summary-copy span { color: #8998b6; font-size: 0.78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.summary-copy { display: grid; gap: 5px; min-width: 0; }
+.summary-copy > strong { font-size: 0.88rem; font-weight: 730; }
+.summary-source { align-items: center; display: flex; gap: 7px; min-width: 0; }
+.summary-source .provenance-label { flex: 0 0 auto; font-size: 0.56rem; padding: 4px 6px; }
+.summary-source-text { color: #8998b6; font-size: 0.78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .mode-footer { color: #657493; font-size: 0.72rem; padding: 9px 18px 13px; text-align: right; }
 

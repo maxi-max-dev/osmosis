@@ -50,6 +50,9 @@ function startServer({ cwd, port, extraEnv = {} }) {
     env: {
       ...process.env,
       OSMOSIS_PORT: String(port),
+      // Keep real local Codex sessions out of unrelated HTTP/MCP tests. Tests
+      // that exercise Ambient Watch opt in with an isolated sessions directory.
+      OSMOSIS_AMBIENT: '0',
       OSMOSIS_TEMPLATE_DELAY_MS: '10000',
       OSMOSIS_PROFILE_DIR: path.join(cwd, '.test-profile'),
       ...extraEnv,
@@ -399,8 +402,10 @@ test('MCP stdio accepts two sequential reports without corrupting stdout', { tim
 
   const status = await nextEventOfType(stream, 'status');
   assert.equal(status.data.report.what_i_did, 'Built and verified the HTTP and SSE skeleton with a template lesson.');
+  assert.equal(status.data.report.source, 'agent');
   const firstCard = await nextEventOfType(stream, 'card');
   assert.equal(firstCard.data.source.what_i_did, 'Built and verified the HTTP and SSE skeleton with a template lesson.');
+  assert.equal(firstCard.data.source.kind, 'agent');
   const latestCard = await nextEventOfType(stream, 'card');
   assert.equal(latestCard.data.source.what_i_did, 'Added the MCP reporting tool and verified a second sequential report.');
 
@@ -498,6 +503,70 @@ test('an HTTP port loser continues serving MCP and relays its report to the prim
     return body.reports.some((report) => report.task === 'Port guard') ? body : null;
   }, 'the relayed report on the primary');
   assert.equal(reports.reports.at(-1).what_i_did, 'Verified the second server instance remains available over stdio.');
+  assert.equal(reports.reports.at(-1).source, 'agent');
+});
+
+test('Ambient Watch runs only in the HTTP-owning server instance', { timeout: 12_000 }, async (t) => {
+  const cleanup = createTestCleanup(t);
+  const primaryCwd = await temporaryProject(cleanup);
+  const secondaryCwd = await temporaryProject(cleanup);
+  const sessionsDir = await temporaryProject(cleanup);
+  const now = new Date();
+  const rolloutDirectory = path.join(
+    sessionsDir,
+    String(now.getFullYear()),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+  );
+  const rolloutPath = path.join(rolloutDirectory, 'rollout-owner-test.jsonl');
+  await fs.mkdir(rolloutDirectory, { recursive: true });
+  await fs.writeFile(rolloutPath, '');
+
+  const { port } = await startHttpServer(cleanup, {
+    cwd: primaryCwd,
+    extraEnv: {
+      OSMOSIS_AMBIENT: '1',
+      OSMOSIS_SESSIONS_DIR: sessionsDir,
+      OSMOSIS_TEMPLATE_DELAY_MS: '60000',
+    },
+  });
+  // The owner attaches at EOF before we append a new session event.
+  await delay(120);
+  const secondary = startTrackedServer(cleanup, {
+    cwd: secondaryCwd,
+    port,
+    extraEnv: {
+      OSMOSIS_AMBIENT: '1',
+      OSMOSIS_SESSIONS_DIR: sessionsDir,
+      OSMOSIS_TEMPLATE_DELAY_MS: '60000',
+    },
+  });
+  await waitFor(() => secondary.stderr().includes('HTTP disabled'), 'the ambient port guard');
+
+  await fs.appendFile(
+    rolloutPath,
+    `${JSON.stringify({
+      type: 'response_item',
+      payload: {
+        type: 'custom_tool_call',
+        name: 'exec',
+        input: JSON.stringify({ cmd: 'node build.js', workdir: primaryCwd }),
+      },
+    })}\n`,
+  );
+
+  const reports = await waitFor(async () => {
+    const response = await fetch(`http://127.0.0.1:${port}/debug/reports`);
+    const body = await response.json();
+    return body.reports.some((report) => report.source === 'observed') ? body : null;
+  }, 'the owner Ambient Watch report');
+  assert.equal(reports.reports.at(-1).source, 'observed');
+
+  // Give a wrongly-started loser enough time to complete its own 2s poll. It
+  // must leave its project state untouched because it never owns the wall.
+  await delay(2_200);
+  const loserCards = await fs.readFile(path.join(secondaryCwd, '.osmosis', 'cards.json'), 'utf8').catch(() => null);
+  assert.equal(loserCards, null);
 });
 
 test('a correct answer persists cards and user mastery, then survives an SSE reload snapshot', { timeout: 10_000 }, async (t) => {

@@ -1,29 +1,34 @@
-# Ambient Capture spike — deferred
+# Ambient Capture hook spike — superseded by Ambient Watch
 
-Date: 2026-07-18
+Date: 2026-07-18 (historical note)
 
-## Decision
+## 1. Original decision
 
-No Ambient Capture production code is included in this build. The spike established that the official Codex capability exists, but did not establish the required stable desktop end-to-end path. Per the stop-loss rule, the temporary probe and its local hook configuration were removed rather than leaving a partially validated observer in the product.
+The original Ambient Capture spike investigated Codex `PostToolUse` hooks as a way to turn edits into lessons. It was stopped under its 90-minute rule: the required trusted desktop edit → hook → debounce → card-wall path was not established, and the temporary hook configuration was removed rather than shipping a partial observer.
 
-## What the official interface supports
+## 2. What changed
 
-Codex lifecycle hooks document `PostToolUse` support for `apply_patch`, with `Edit` and `Write` matcher aliases. The hook payload includes `session_id`, `cwd`, `tool_name`, `tool_input`, `tool_response`, and a tool-use id. Commands run with the session cwd. See the official [Codex Hooks documentation](https://learn.chatgpt.com/docs/hooks).
+Ambient Watch supersedes that hook-only plan. Codex writes current session rollout records locally under `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`; these records provide real-time, non-blocking tool and patch metadata without requiring an agent to cooperate or a desktop hook to be trusted.
 
-## Why it was not retained
+## 3. Current Ambient Watch contract
 
-The temporary desktop probe could not be trusted and exercised in a fresh desktop session from this primary thread. It therefore produced no event, which is not enough evidence for the required real edit → hook → debounce → card-wall chain. The app-control surface also could not operate the Codex desktop UI to complete the hook trust flow. The probe wrote no event log and all temporary files were removed.
+The server polls only active rollout files from today and yesterday, attaches at their current EOF, and reads only appended JSONL events. It extracts command/tool names, working-directory/project labels, changed file basenames/extensions, and MCP `server.tool` metadata; it never reads project-file contents. The `osmosis` MCP server is ignored to prevent feedback loops.
 
-## Safe implementation contract for the next spike
+The first qualifying signal for a session can create a fast observed report. Later signals are grouped into one report per configured interval, then continue through the normal card pacing and queue cap. The watcher exists only in the HTTP-port owner, runs locally, and is stopped with the server. Filesystem, parsing, and timer failures are contained and logged to stderr without affecting Codex's MCP path.
 
-1. Bundle a `PostToolUse` hook matching `apply_patch|Edit|Write` in an installable Osmosis plugin; do not ask an agent to self-report.
-2. Make the hook a tiny exit-0 launcher only. Command hooks are synchronous and Codex currently skips `async` hooks, so the hook itself must not wait for HTTP, run `git diff`, or generate a card.
-3. Send only local event metadata to a server-owned observer keyed by `(session_id, cwd)`. Debounce each key for 75 seconds.
-4. After the key is idle, let the server inspect the project diff and create at most one card. All failures must be swallowed locally and must never affect Codex's edit result.
-5. Preserve source provenance in the card contract and UI: genuine MCP reports are labelled **Reported by agent**; hook-derived cards are labelled **Observed change**.
+## 4. Privacy and control
 
-## Required tests before enabling it
+The raw Codex rollout logs stay local. Ambient Watch does not transmit those logs or project contents; it uses metadata only. Set `OSMOSIS_AMBIENT=0` to disable it, or set `OSMOSIS_SESSIONS_DIR` to use an isolated local directory for a test or demo. A configured card-generation provider follows its own request path; Ambient Watch itself does not add a remote transport.
 
-- Two matching mock hook events for the same `(session_id, cwd)` reset one debounce timer and produce one card after idle.
-- Different keys debounce independently, and a card from an observed change has the observed source label rather than an agent-report label.
-- A failed local notification, diff read, or generation is swallowed without an unhandled rejection, retained timer, or impact on the edit path.
+## 5. Provenance contract
+
+Every lesson carries a source, and both Osmosis surfaces make it visible:
+
+- **Reported by agent** — the agent explicitly called the strict three-field `osmosis_report` MCP tool. The server stamps this report as `source: 'agent'` only after validation.
+- **Observed change** — Ambient Watch synthesized `source: 'observed'` from local Codex event metadata. It must never be presented as an agent-authored report.
+
+Observed lessons should teach the concrete tool or technology that was seen (for example, a command, extension, or framework), not invent a project narrative from unseen code.
+
+## 6. Hook status
+
+`PostToolUse` hooks remain an optional future research path, not a runtime dependency of this build. Any future hook integration must remain non-blocking and preserve the same privacy, source-provenance, and failure-containment contract described above.

@@ -6,8 +6,10 @@ const test = require('node:test');
 const {
   CARD_SCHEMA_PATH,
   TREE_SCHEMA_PATH,
+  cardPrompt,
   codexExecArgs,
   createProvider,
+  treePrompt,
 } = require('../lib/provider');
 
 function validCard() {
@@ -68,6 +70,24 @@ test('the Codex command arguments retain the target-safe read-only flags and str
     'Generate JSON.',
   ]);
   assert.equal(TREE_SCHEMA_PATH.endsWith('tree-output.schema.json'), true);
+});
+
+test('observed reports constrain Codex lessons and trees to the concrete metadata they carry', () => {
+  const report = {
+    task: 'Observed work in sydney-map',
+    what_i_did: 'Observed ran three.js and changed scene.ts in sydney-map.',
+    stack_hints: ['three.js', '.ts'],
+    source: 'observed',
+  };
+  const card = cardPrompt({ concepts: [], masteredConceptIds: [], report });
+  const tree = treePrompt({ report });
+
+  for (const prompt of [card, tree]) {
+    assert.match(prompt, /Ambient Watch metadata observation/);
+    assert.match(prompt, /Do not invent product features, user intent, unseen implementation details/);
+    assert.match(prompt, /"source":"observed"/);
+    assert.match(prompt, /three\.js/);
+  }
 });
 
 test('the Codex provider stops after one silent retry when generation keeps failing', async () => {

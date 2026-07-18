@@ -8,6 +8,7 @@ const { createTemplateCard } = require('./lib/card-factory');
 const { createCardService } = require('./lib/card-service');
 const { createCurriculumService } = require('./lib/curriculum-service');
 const { createAnswerService } = require('./lib/answer-service');
+const { createAmbientWatcher } = require('./lib/ambient');
 const { createHttpHandler } = require('./lib/http');
 const { renderInlineCard } = require('./lib/inline-card');
 const { log } = require('./lib/log');
@@ -75,6 +76,14 @@ async function main() {
   const answerService = createAnswerService({ state, hub, persistence, cardService });
   let reportDelivery = 'starting';
   const queuedStartupReports = [];
+  let ambientWatcher = null;
+
+  // MCP payloads remain the frozen three-key schema until they have passed
+  // validation and reached the HTTP-owning pipeline. This matters for a port
+  // loser: it must relay the raw validated payload to /internal/reports.
+  function acceptAgentReport(report) {
+    reportPipeline.accept({ ...report, source: 'agent' });
+  }
 
   function acceptMcpReport(report) {
     if (reportDelivery === 'starting') {
@@ -83,7 +92,7 @@ async function main() {
     }
 
     if (reportDelivery === 'primary') {
-      reportPipeline.accept(report);
+      acceptAgentReport(report);
       return;
     }
 
@@ -109,7 +118,7 @@ async function main() {
     hub,
     snapshot: () => snapshotFor(state),
     recentReports: reportPipeline.recentReports,
-    acceptInternalReport: reportPipeline.accept,
+    acceptInternalReport: acceptAgentReport,
     answerCard: answerService.answer,
     inlineCardHtml,
   });
@@ -131,6 +140,18 @@ async function main() {
       config.port = address.port;
     }
     log(`HTTP listening on http://${config.host}:${config.port}`, `cwd=${config.cwd}`);
+    if (config.ambientEnabled && config.mode !== 'replay') {
+      try {
+        ambientWatcher = createAmbientWatcher({
+          config,
+          onReport: reportPipeline.accept,
+          log,
+        });
+        ambientWatcher.start();
+      } catch (error) {
+        log('could not start Ambient Watch', error && error.message ? error.message : error);
+      }
+    }
   } else {
     log(`HTTP disabled because ${config.host}:${config.port} is already in use; continuing with MCP stdio only.`);
   }
@@ -160,6 +181,7 @@ async function main() {
     if (starterTimer) {
       clearTimeout(starterTimer);
     }
+    ambientWatcher?.stop();
     provider.close?.();
     hub.close();
     if (httpEnabled) {

@@ -40,7 +40,26 @@
   }
 
   function sourceText(card) {
-    return card.source?.what_i_did || 'Your agent reported a milestone.';
+    if (card.source?.what_i_did) {
+      return card.source.what_i_did;
+    }
+    return sourceKind(card) === 'observed'
+      ? 'Osmosis observed a local Codex change.'
+      : 'Your agent reported a milestone.';
+  }
+
+  function sourceKind(card) {
+    return card.source?.kind === 'observed' ? 'observed' : 'agent';
+  }
+
+  function sourceLabel(card) {
+    return sourceKind(card) === 'observed' ? 'Observed change' : 'Reported by agent';
+  }
+
+  function sourceLead(card) {
+    return sourceKind(card) === 'observed'
+      ? 'From local Codex activity:'
+      : 'From what your AI just did:';
   }
 
   function cardSummary(card) {
@@ -51,7 +70,10 @@
       <span class="summary-state ${className}">${label}</span>
       <span class="summary-copy">
         <strong>${escapeHtml(card.concept_name)}</strong>
-        <span>${escapeHtml(sourceText(card))}</span>
+        <span class="summary-source">
+          <span class="provenance-label provenance-label--${sourceKind(card)}">${sourceLabel(card)}</span>
+          <span class="summary-source-text">${escapeHtml(sourceText(card))}</span>
+        </span>
       </span>`;
 
     if (!answered) {
@@ -66,8 +88,8 @@
     if (!card) {
       cardArea.innerHTML = `
         <div class="empty-card">
-          <p>Waiting for your agent’s first milestone…</p>
-          <span>Osmosis will turn it into one focused lesson.</span>
+          <p>Waiting for your first learning signal…</p>
+          <span>Osmosis turns a local change or agent report into one focused lesson.</span>
         </div>`;
       return;
     }
@@ -92,7 +114,10 @@
             <p class="card-concept">${escapeHtml(card.concept_name)}</p>
             ${waiting > 0 ? `<p class="queue-badge">${waiting} more waiting</p>` : ''}
           </div>
-          <p class="source-line">From what your AI just did: "${escapeHtml(sourceText(card))}"</p>
+          <p class="source-line source-line--${sourceKind(card)}">
+            <span class="provenance-label provenance-label--${sourceKind(card)}">${sourceLabel(card)}</span>
+            <span>${sourceLead(card)} "${escapeHtml(sourceText(card))}"</span>
+          </p>
           <p class="lesson-copy">${escapeHtml(card.lesson)}</p>
           <h3>${escapeHtml(card.question)}</h3>
           <div class="answers" aria-label="Answer choices">
@@ -342,7 +367,8 @@
     const status = JSON.parse(event.data);
     updateConnectionStatus(status);
     if (status.report?.what_i_did) {
-      showToast(`Codex reported: "${status.report.what_i_did}"`);
+      const observed = status.report.source === 'observed' || status.report.source?.kind === 'observed';
+      showToast(`${observed ? 'Osmosis observed' : 'Codex reported'}: "${status.report.what_i_did}"`);
     }
   });
 

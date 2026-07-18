@@ -55,9 +55,25 @@ MCP Apps support is under development in Codex and is off by default. Enable the
 codex features enable enable_mcp_apps
 ```
 
-When the host supports it, the `osmosis_report` response points to a dynamic local `ui://osmosis/card.html` resource. It shows the newest unanswered lesson, its agent-report source line, three answer choices, and the current tree/queue progress. The report acknowledgement remains non-blocking, so a slow provider can briefly show the calm empty state before its first card is generated; that empty iframe silently refreshes the loopback `/inline-card` view every 2.5 seconds until a real lesson is ready.
+When the host supports it, the `osmosis_report` response points to a dynamic local `ui://osmosis/card.html` resource. It shows the newest unanswered lesson, its provenance line, three answer choices, and the current tree/queue progress. The report acknowledgement remains non-blocking, so a slow provider can briefly show the calm empty state before its first card is generated; that empty iframe silently refreshes the loopback `/inline-card` view every 2.5 seconds until a real lesson is ready.
 
 The iframe uses only loopback endpoints: it refreshes `GET /inline-card` while waiting, then attempts to save an answer with `POST http://127.0.0.1:4321/answer` (or the configured local port). They deliberately permit permissive CORS, including private-network preflight, so a sandboxed local tool can reach them. This is an intentional local-tool tradeoff; the primary browser wall does not depend on MCP Apps. If the host rejects the answer connection or CSP allowance, the inline card shows local right/wrong feedback and the explicit fallback note `answer synced on your wall only` rather than claiming that a mastery update was saved.
+
+## Ambient Watch
+
+Ambient Watch fills the wait window without relying on an agent to remember `osmosis_report`. When a local Codex sessions directory is available, the HTTP-owning Osmosis server polls the current Codex rollout logs and turns newly appended tool activity into an observed lesson while the agent is still working. It attaches at the end of each active log, so it never replays earlier session history.
+
+It observes local event metadata only: command and tool names, the working-directory/project label, changed file basenames and extensions, and MCP `server.tool` names. It never reads project-file contents. The watcher ignores the `osmosis` MCP server itself, so it cannot create a feedback loop. The raw rollout logs remain local; Ambient Watch does not transmit them or project contents. In `none` mode its observed metadata stays on the machine; replay mode leaves Ambient Watch off to preserve deterministic judging. Any configured generator provider has its own documented request path.
+
+Ambient Watch is automatic when `~/.codex/sessions` exists. Disable it completely with:
+
+```bash
+OSMOSIS_AMBIENT=0 npm start
+```
+
+Use `OSMOSIS_SESSIONS_DIR` to point at an isolated local sessions directory for a demo or test. The watcher runs only in the server instance that owns the local HTTP wall, which prevents a port-guarded MCP-only instance from producing duplicate cards.
+
+Every lesson states where it came from: **Reported by agent** means the agent explicitly called `osmosis_report`; **Observed change** means Ambient Watch synthesized the lesson from local Codex event metadata. These labels are shown both on the browser wall and, when available, the experimental inline card. Observed lessons are intentionally phrased around the concrete tool or technology seen in the event, not an inferred project story.
 
 ## Agent instruction
 
@@ -84,6 +100,9 @@ Use one report per completed milestone. Every field is English. Do not batch mil
 | `OSMOSIS_PORT` | `4321` | Local HTTP/SSE port. Set `0` only when an isolated test needs an OS-assigned free port. |
 | `OSMOSIS_HOST` | `127.0.0.1` | Local bind address. |
 | `OSMOSIS_PROFILE_DIR` | `~/.osmosis` | User-level mastery directory. Point this at an isolated directory for demos/tests, or share it to prove cross-project mastery. |
+| `OSMOSIS_SESSIONS_DIR` | `~/.codex/sessions` | Local Codex rollout-log root used by Ambient Watch. Point it at an isolated local directory for demos/tests. |
+| `OSMOSIS_AMBIENT` | enabled when the sessions directory exists | Set to `0` to disable Ambient Watch entirely. |
+| `OSMOSIS_AMBIENT_EMIT_INTERVAL_MS` | `45000` | Minimum per-session interval between observed reports after the first fast report. |
 | `OSMOSIS_TEMPLATE_DELAY_MS` | `900` | Delay before the local `none` starter lesson; useful for development and tests. |
 | `OSMOSIS_CARD_PACING_MS` | `12000` | Minimum spacing between delivered live curriculum cards after the first card. |
 | `OSMOSIS_UNANSWERED_CARD_CAP` | `5` | Maximum unanswered live curriculum cards before generation pauses and marks the direct concept as surfaced. |
@@ -91,7 +110,7 @@ Use one report per completed milestone. Every field is English. Do not batch mil
 | `OSMOSIS_CODEX_TIMEOUT_MS` | `60000` | Per-attempt timeout for a `codex exec` generation call. |
 | `OPENAI_API_KEY` | unset | Required only by the future `openai` provider; never commit it. |
 
-Local data stays local: `~/.osmosis/profile.json` holds user-level mastery; the target project's `.osmosis/tree.json`, `cards.json`, and `replay.json` hold project-level state. They are private/ignored. Only the sanitized replay fixture in this repository is intended to ship.
+Local data stays local: `~/.osmosis/profile.json` holds user-level mastery; the target project's `.osmosis/tree.json`, `cards.json`, and `replay.json` hold project-level state; and Codex's own rollout logs live below `~/.codex/sessions`. They are private/ignored. Only the sanitized replay fixture in this repository is intended to ship.
 
 ## Testing
 
@@ -102,7 +121,7 @@ Run the automated local checks:
 npm test
 ```
 
-Each test uses an OS-assigned port and a self-contained teardown: SSE readers close first, child servers close next, and temporary project data is removed last. The suite exits naturally. On 2026-07-18, three consecutive full runs passed in about 2.5 seconds each.
+Each test uses an OS-assigned port and a self-contained teardown: SSE readers close first, child servers close next, and temporary project data is removed last. The suite exits naturally.
 
 The suite verifies all completed P0 behavior:
 
@@ -111,6 +130,7 @@ The suite verifies all completed P0 behavior:
 - a second server instance keeps MCP stdio alive after its HTTP port is guarded, then relays its report to the primary instance;
 - `POST /answer` atomically persists `cards.json` and `~/.osmosis/profile.json`, includes the local iframe CORS response headers, and a reconnecting browser receives the answered state;
 - an incorrect answer waits for two other delivered cards before it reappears;
+- Ambient Watch attaches to the current end of fake local rollout logs, groups metadata-only tool and patch signals at the configured interval, ignores Osmosis's own MCP calls, runs only in the HTTP owner, and shuts down without retained timers;
 - record mode excludes starter cards and wrong-answer requeues from `.osmosis/replay.json`;
 - replay mode uses real reports to emit sanitized recorded cards in order, then finishes calmly when exhausted;
 - two distinct project directories sharing one profile prove mastery carry-over: project B shows gold `carried over` state and skips a mastered none-provider concept;
@@ -185,7 +205,7 @@ Run one Osmosis-enabled project at a time. Concurrent projects can relay reports
 
 - **MCP Apps inline hardening:** keep the experimental inline card current as the under-development Codex host interface matures, then package it with the runner.
 - **Plugin distribution:** package an npm runner and plugin shell so installation is repeatable and the Codex child-process cwd trap is contained.
-- **Ambient Capture:** deferred after this round's spike. `PostToolUse` exposes the needed edit metadata, but Osmosis will add the non-blocking observer only after a fresh, trusted desktop session proves edit → hook → debounce → card end-to-end; observed cards will remain visibly distinct from agent reports.
+- **Ambient Watch hardening:** validate rollover-log observation across additional Codex desktop releases and refine metadata-only signal grouping without weakening provenance or privacy guarantees.
 
 ## How Osmosis was built
 

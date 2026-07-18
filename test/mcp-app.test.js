@@ -130,7 +130,11 @@ test('resources/read renders the newest unanswered lesson and local CSP allowanc
     cardId: 'latest-card',
     conceptId: 'latest-concept',
     conceptName: 'Latest concept',
-    source: { task: 'Latest milestone', what_i_did: 'Latest source is what the agent just reported.' },
+    source: {
+      task: 'Latest local change',
+      what_i_did: 'Latest source came from local Codex activity.',
+      kind: 'observed',
+    },
     lesson: 'A latest lesson explains the exact technology now in use.',
     question: 'Which lesson should Osmosis show?',
     options: ['The latest unanswered lesson.', 'The oldest answered lesson.', 'A random unrelated lesson.'],
@@ -158,8 +162,10 @@ test('resources/read renders the newest unanswered lesson and local CSP allowanc
   assert.equal(content.mimeType, 'text/html');
   assert.equal(content._meta.ui.csp.connectDomains[0], 'http://127.0.0.1:4321');
   assert.deepEqual(content._meta.ui.csp.resourceDomains, []);
-  assert.match(content.text, /Latest milestone/);
-  assert.match(content.text, /Latest source is what the agent just reported/);
+  assert.match(content.text, /Latest local change/);
+  assert.match(content.text, /Latest source came from local Codex activity/);
+  assert.match(content.text, /Observed change/);
+  assert.doesNotMatch(content.text, /Reported by agent/);
   assert.match(content.text, /A latest lesson explains the exact technology now in use/);
   assert.match(content.text, /Which lesson should Osmosis show/);
   assert.match(content.text, /The latest unanswered lesson/);
@@ -167,6 +173,30 @@ test('resources/read renders the newest unanswered lesson and local CSP allowanc
   assert.match(content.text, /Queue<\/span>2/);
   assert.match(content.text, /http:\/\/127\.0\.0\.1:4321\/answer/);
   assert.doesNotMatch(content.text, /Older source should not be shown/);
+});
+
+test('inline cards default missing provenance to the agent report label', () => {
+  const html = renderInlineCard({
+    state: {
+      cards: [
+        lessonCard({
+          cardId: 'agent-card',
+          conceptId: 'mcp',
+          conceptName: 'MCP',
+          source: { task: 'Agent milestone', what_i_did: 'The agent reported a tool call.' },
+          lesson: 'A lesson.',
+          question: 'A question?',
+          options: ['One', 'Two', 'Three'],
+        }),
+      ],
+      strengths: {},
+      tree: { meta: {}, nodes: [] },
+    },
+  });
+
+  assert.match(html, /Reported by agent/);
+  assert.match(html, /source-label--agent/);
+  assert.doesNotMatch(html, /Observed change/);
 });
 
 test('resources/read returns a calm inline empty state when no lesson is waiting', () => {

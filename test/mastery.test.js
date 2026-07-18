@@ -61,6 +61,29 @@ function createHarness({ cards, strengths }) {
   return { answerService, cardService, events, savedCards, savedProfiles, state };
 }
 
+test('runtime cards retain observed provenance and default older reports to agent provenance', () => {
+  const observed = createRuntimeCard(generatedCard('ambient-watch', 'Ambient Watch'), {
+    task: 'Observed local change',
+    what_i_did: 'Changed a Three.js scene file.',
+    source: 'observed',
+  });
+  const agent = createRuntimeCard(generatedCard('mcp', 'MCP'), {
+    task: 'Reported milestone',
+    what_i_did: 'Connected the report tool.',
+  });
+
+  assert.deepEqual(observed.source, {
+    task: 'Observed local change',
+    what_i_did: 'Changed a Three.js scene file.',
+    kind: 'observed',
+  });
+  assert.deepEqual(agent.source, {
+    task: 'Reported milestone',
+    what_i_did: 'Connected the report tool.',
+    kind: 'agent',
+  });
+});
+
 test('a stale wrong answer cannot lower mastered strength or create another review card', async () => {
   const staleCard = runtimeCard('stale-card');
   const harness = createHarness({
