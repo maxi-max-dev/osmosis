@@ -2,23 +2,18 @@
 'use strict';
 
 const http = require('node:http');
+const path = require('node:path');
 
-const { getConfig } = require('./lib/config');
 const { createTemplateCard } = require('./lib/card-factory');
-const { createCardService } = require('./lib/card-service');
-const { createCurriculumService } = require('./lib/curriculum-service');
-const { createAnswerService } = require('./lib/answer-service');
 const { createAmbientWatcher } = require('./lib/ambient');
+const { createBroker } = require('./lib/broker');
+const { getConfig } = require('./lib/config');
 const { createHttpHandler } = require('./lib/http');
-const { renderInlineCard } = require('./lib/inline-card');
 const { log } = require('./lib/log');
 const { createMcpServer } = require('./lib/mcp');
-const { createProvider } = require('./lib/provider');
-const { createReportPipeline } = require('./lib/report-pipeline');
-const { createReplayService } = require('./lib/replay');
+const { resolveProjectIdentity } = require('./lib/project-identity');
+const { createRelayInlineCardResolver } = require('./lib/relay-inline');
 const { SseHub } = require('./lib/sse');
-const { createPersistence, loadProjectState, snapshotFor } = require('./lib/state');
-const { createTreeService } = require('./lib/tree-service');
 
 async function listen(server, port, host) {
   return new Promise((resolve, reject) => {
@@ -41,48 +36,70 @@ async function listen(server, port, host) {
   });
 }
 
-async function forwardReportToPrimary(config, report) {
-  const response = await fetch(`http://${config.host}:${config.port}/internal/reports`, {
+function applyProjectIdentity(config, identity) {
+  const stateDir = path.join(identity.root, '.osmosis');
+  config.projectId = identity.project_id;
+  config.projectRoot = identity.root;
+  config.stateDir = stateDir;
+  config.treePath = path.join(stateDir, 'tree.json');
+  config.replayPath = path.join(stateDir, 'replay.json');
+}
+
+function primaryBaseUrl(config) {
+  return `http://${config.host}:${config.port}`;
+}
+
+async function postRegistration(config) {
+  const response = await fetch(`${primaryBaseUrl(config)}/internal/register`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ root: config.projectRoot }),
+    signal: AbortSignal.timeout(4_000),
+  });
+  if (!response.ok) {
+    throw new Error(`primary registration returned ${response.status}`);
+  }
+  const value = await response.json();
+  if (!value || typeof value.project_id !== 'string' || typeof value.token !== 'string') {
+    throw new Error('primary registration returned an invalid relay identity');
+  }
+  return value;
+}
+
+async function forwardReportToPrimary(config, relayIdentity, report) {
+  const query = relayIdentity?.project_id ? `?project=${encodeURIComponent(relayIdentity.project_id)}` : '';
+  const headers = { 'content-type': 'application/json' };
+  if (relayIdentity?.token) {
+    headers['x-osmosis-token'] = relayIdentity.token;
+  }
+  const response = await fetch(`${primaryBaseUrl(config)}/internal/reports${query}`, {
+    method: 'POST',
+    headers,
     body: JSON.stringify(report),
     signal: AbortSignal.timeout(4_000),
   });
 
   if (!response.ok) {
-    throw new Error(`primary report relay returned ${response.status}`);
+    const error = new Error(`primary report relay returned ${response.status}`);
+    error.statusCode = response.status;
+    throw error;
   }
 }
 
 async function main() {
   const config = getConfig();
-  const state = await loadProjectState(config);
+  applyProjectIdentity(config, await resolveProjectIdentity(config.cwd));
   const hub = new SseHub();
-  const persistence = createPersistence(config);
-  const cardService = createCardService({ state, hub, persistence });
-  const provider = createProvider(config);
-  const replayService = await createReplayService({ config, persistence, state });
-  const treeService = createTreeService({ hub, persistence, provider, state });
-  const curriculumService = createCurriculumService({ config, hub, provider, state, treeService });
-  cardService.setRequeueDeliveryGate({
-    beforeDelivery: curriculumService.beforeDelivery,
-    afterDelivered: (card) => curriculumService.markDelivered(card.concept_id),
-  });
-  const reportPipeline = createReportPipeline({
-    cardService,
-    config,
-    curriculumService,
-    hub,
-    provider,
-    replayService,
-    state,
-  });
-  const answerService = createAnswerService({ state, hub, persistence, cardService });
+  const broker = createBroker({ config, hub, getBaseUrl: () => primaryBaseUrl(config) });
+  await broker.initialize();
+
   let reportDelivery = 'starting';
   let pipelineReady = false;
   const queuedStartupReports = [];
   const queuedRelayReports = [];
   const queuedLocalReports = [];
+  let relayIdentity = null;
+  let registrationInFlight = null;
   let ambientWatcher = null;
   let binding = false;
   let httpEnabled = false;
@@ -90,90 +107,118 @@ async function main() {
   let shuttingDown = false;
   let starterTimer = null;
 
-  // MCP payloads remain the frozen three-key schema until they have passed
-  // validation and reached the HTTP-owning pipeline. This matters for a port
-  // loser: it must relay the raw validated payload to /internal/reports.
-  function acceptAgentReport(report) {
-    reportPipeline.accept({ ...report, source: 'agent' });
-  }
-
-  function queueLocalReport(report) {
-    if (queuedLocalReports.length < 20) {
-      queuedLocalReports.push(report);
+  function queueReport(queue, report, message) {
+    if (queue.length < 20) {
+      queue.push(report);
       return;
     }
-    log('dropped a report while the new HTTP owner was reconciling local state');
+    log(message);
+  }
+
+  function acceptAgentReport(report) {
+    void broker.acceptLocalReport(report).catch((error) =>
+      log('could not accept an agent report in the local broker', error && error.message ? error.message : error),
+    );
   }
 
   function acceptLocalAgentReport(report) {
     if (!pipelineReady) {
-      queueLocalReport(report);
+      queueReport(queuedLocalReports, report, 'dropped a report while the new HTTP owner was reconciling local state');
       return;
     }
     acceptAgentReport(report);
   }
 
-  function acceptMcpReport(report) {
-    if (reportDelivery === 'starting') {
-      queuedStartupReports.push(report);
+  async function ensureRelayRegistration() {
+    if (relayIdentity) {
+      return relayIdentity;
+    }
+    if (!registrationInFlight) {
+      registrationInFlight = postRegistration(config)
+        .then((identity) => {
+          relayIdentity = identity;
+          return identity;
+        })
+        .finally(() => {
+          registrationInFlight = null;
+        });
+    }
+    return registrationInFlight;
+  }
+
+  async function flushRelayReports() {
+    if (reportDelivery !== 'relay') {
       return;
     }
+    let identity;
+    try {
+      identity = await ensureRelayRegistration();
+    } catch (error) {
+      log('could not register the MCP relay with the HTTP owner', error && error.message ? error.message : error);
+      return;
+    }
+    while (reportDelivery === 'relay' && queuedRelayReports.length > 0) {
+      const report = queuedRelayReports.shift();
+      try {
+        await forwardReportToPrimary(config, identity, report);
+      } catch (error) {
+        // The owner may have been replaced. Discard the ephemeral capability
+        // and retry registration on the next flush, retaining report order.
+        relayIdentity = null;
+        queuedRelayReports.unshift(report);
+        log('could not relay report to the HTTP-owning process', error && error.message ? error.message : error);
+        return;
+      }
+    }
+  }
 
+  // MCP payloads remain the frozen three-key schema until they pass through
+  // the primary. A loser never sends a cwd or any extra routing field.
+  function acceptMcpReport(report) {
+    if (reportDelivery === 'starting') {
+      queueReport(queuedStartupReports, report, 'dropped a report before delivery mode was known');
+      return;
+    }
     if (reportDelivery === 'primary') {
       acceptLocalAgentReport(report);
       return;
     }
-
-    void forwardReportToPrimary(config, report).catch((error) => {
-      // The old owner can die between this loser starting its relay request
-      // and the request failing. If this process acquired the port in that
-      // gap, keep the report in its own local pipeline rather than stranding
-      // it in a relay queue that has already been flushed.
-      if (reportDelivery === 'primary') {
-        acceptLocalAgentReport(report);
-        return;
-      }
-      if (queuedRelayReports.length < 20) {
-        queuedRelayReports.push(report);
-      }
-      log('could not relay report to the HTTP-owning process', error && error.message ? error.message : error);
-    });
+    queueReport(queuedRelayReports, report, 'dropped a report while the relay queue was full');
+    void flushRelayReports();
   }
+
+  const inlineCardHtml = createRelayInlineCardResolver({
+    broker,
+    getBaseUrl: () => primaryBaseUrl(config),
+    getDelivery: () => reportDelivery,
+    getRelayIdentity: () => relayIdentity,
+  });
 
   function inlineAnswerOrigin() {
-    return `http://127.0.0.1:${config.port}`;
-  }
-
-  function inlineCardHtml() {
-    return renderInlineCard({
-      state,
-      answerUrl: `${inlineAnswerOrigin()}/answer`,
-      refreshUrl: `${inlineAnswerOrigin()}/inline-card`,
-    });
+    return primaryBaseUrl(config);
   }
 
   const handler = createHttpHandler({
+    answerCard: (projectId, answer) => broker.answer(projectId, answer),
+    broker,
     config,
     hub,
-    snapshot: () => snapshotFor(state),
-    recentReports: reportPipeline.recentReports,
-    acceptInternalReport: acceptLocalAgentReport,
-    answerCard: answerService.answer,
+    initialEvents: () => broker.initialEvents(),
     inlineCardHtml,
+    recentReports: () => broker.recentReports(),
+    snapshot: () => ({ cards: [], strengths: {}, tree: { meta: {}, nodes: [] } }),
   });
   const server = http.createServer((request, response) => {
     void handler(request, response);
   });
   const mcp = createMcpServer({
-    onReport: acceptMcpReport,
-    getInlineCardHtml: inlineCardHtml,
     getInlineAnswerOrigin: inlineAnswerOrigin,
+    getInlineCardHtml: inlineCardHtml,
+    onReport: acceptMcpReport,
   });
   mcp.start();
 
   function canRunAmbientWatch() {
-    // Record and replay remain deterministic fixtures. Ambient Watch is an
-    // explicitly opt-in live-only observer.
     return config.ambientEnabled && config.mode === 'live';
   }
 
@@ -184,8 +229,10 @@ async function main() {
     try {
       ambientWatcher = createAmbientWatcher({
         config,
-        onReport: reportPipeline.accept,
         log,
+        onReport: (report, project) => broker.acceptLocalReport(report, project?.project_id),
+        onSuppressed: (entry) => broker.recordUnregisteredActivity(entry),
+        resolveProject: (cwd) => broker.resolveAmbientProject(cwd),
       });
       ambientWatcher.start();
     } catch (error) {
@@ -195,13 +242,28 @@ async function main() {
   }
 
   function startStarterTimer() {
-    if (!httpEnabled || starterTimer || config.mode !== 'live' || provider.name !== 'none') {
+    if (!httpEnabled || starterTimer || config.mode !== 'live' || config.provider !== 'none') {
       return;
     }
     starterTimer = setTimeout(() => {
       void pushStarterCard();
     }, config.templateDelayMs);
     starterTimer.unref();
+  }
+
+  async function pushStarterCard() {
+    const channel = await broker.ensureChannel();
+    if (!channel || channel.state.cards.some((card) => !card.state.answered)) {
+      return;
+    }
+    const card = createTemplateCard();
+    const delivery = await channel.cardService.deliver(card, {
+      afterPersisted: () => channel.curriculumService.markDelivered(card.concept_id),
+      beforePersist: () => channel.curriculumService.beforeDelivery(card),
+    });
+    if (delivery.delivered) {
+      log('template card generated', card.card_id);
+    }
   }
 
   function stopPortRetry() {
@@ -226,9 +288,9 @@ async function main() {
     if (httpEnabled || shuttingDown) {
       return;
     }
-    // This must happen before the watcher begins: any agent report arriving
-    // after the port is acquired belongs in this process's local pipeline.
     const takingOverFromRelay = reportDelivery === 'relay';
+    // Delivery changes first: reports arriving while disk state refreshes are
+    // retained locally instead of relayed to an owner that no longer exists.
     reportDelivery = 'primary';
     httpEnabled = true;
     pipelineReady = false;
@@ -240,17 +302,9 @@ async function main() {
     log(`HTTP listening on http://${config.host}:${config.port}`, `cwd=${config.cwd}`);
     if (takingOverFromRelay) {
       try {
-        // A port loser loaded state before the former owner made its latest
-        // writes. Refresh the mutable state object before any local report,
-        // answer, watcher, tree, or profile write can run in this process.
-        const refreshed = await loadProjectState(config);
-        state.cards = refreshed.cards;
-        state.tree = refreshed.tree;
-        state.strengths = refreshed.strengths;
+        await broker.reloadHydrated();
       } catch (error) {
-        // We still keep MCP available if a transient disk read fails, but make
-        // the failure visible on stderr instead of silently replacing state.
-        log('could not reconcile project state after HTTP takeover', error && error.message ? error.message : error);
+        log('could not reconcile broker state after HTTP takeover', error && error.message ? error.message : error);
       }
     }
     if (shuttingDown) {
@@ -280,6 +334,7 @@ async function main() {
       }
       reportDelivery = 'relay';
       startPortRetry();
+      void flushRelayReports();
     } catch (error) {
       reportDelivery = 'relay';
       log('could not retry the HTTP port', error && error.message ? error.message : error);
@@ -294,26 +349,8 @@ async function main() {
     log(`HTTP disabled because ${config.host}:${config.port} is already in use; continuing with MCP stdio only.`);
   }
 
-  for (const report of queuedStartupReports) {
+  for (const report of queuedStartupReports.splice(0)) {
     acceptMcpReport(report);
-  }
-
-  async function pushStarterCard() {
-    if (state.cards.some((card) => !card.state.answered)) {
-      return;
-    }
-
-    const card = createTemplateCard();
-    const delivery = await cardService.deliver(card, {
-      beforePersist: () => curriculumService.beforeDelivery(card),
-      // The starter shares the same project-wide pacing clock as every later
-      // report, including Ambient Watch on the template provider.
-      afterPersisted: () => curriculumService.markDelivered(card.concept_id),
-    });
-    if (!delivery.delivered) {
-      return;
-    }
-    log('template card generated', card.card_id);
   }
 
   function shutdown(signal) {
@@ -324,7 +361,7 @@ async function main() {
       starterTimer = null;
     }
     ambientWatcher?.stop();
-    provider.close?.();
+    broker.close();
     hub.close();
     if (httpEnabled) {
       server.close(() => process.exit(0));

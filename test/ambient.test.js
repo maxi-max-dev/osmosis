@@ -218,6 +218,68 @@ test('Ambient Watch requires a canonical target-project cwd before accepting inh
   watcher.stop();
 });
 
+test('Ambient Watch keeps rollout buckets by registered project and sends unknown roots only to suppression', async (t) => {
+  const { otherProjectDir, projectDir, sessionsDir } = await setup(t);
+  const clock = { value: Date.now() };
+  const delivered = [];
+  const suppressed = [];
+  const rollout = await createRollout(sessionsDir, clock.value);
+  const canonicalA = await fs.realpath(projectDir);
+  const canonicalB = await fs.realpath(otherProjectDir);
+  const watcher = createAmbientWatcher({
+    config: {
+      ambientEnabled: true,
+      ambientEmitIntervalMs: 45_000,
+      cwd: projectDir,
+      sessionsDir,
+    },
+    now: () => clock.value,
+    resolveProject(cwd) {
+      if (cwd === canonicalA) return { project_id: 'project-a-0123456789', root: canonicalA };
+      if (cwd === canonicalB) return { project_id: 'project-b-0123456789', root: canonicalB };
+      return { registered: false, root: cwd };
+    },
+    onReport(report, project) {
+      delivered.push({ project, report });
+    },
+    onSuppressed(entry) {
+      suppressed.push(entry);
+    },
+  });
+  await watcher.poll();
+
+  await appendEvents(rollout, clock.value, [execEvent('node first-a.js', projectDir)]);
+  await watcher.poll();
+  assert.deepEqual(delivered.map((item) => item.project.project_id), ['project-a-0123456789']);
+
+  // A later A signal is held by A's pacing bucket. Moving the same rollout to
+  // B must not discard it; B gets its own first immediate bucket instead.
+  clock.value += 1;
+  await appendEvents(rollout, clock.value, [execEvent('npm test', projectDir), execEvent('git status', otherProjectDir)]);
+  await watcher.poll();
+  assert.deepEqual(delivered.map((item) => item.project.project_id), ['project-a-0123456789', 'project-b-0123456789']);
+
+  clock.value += 45_000;
+  await fs.utimes(rollout, new Date(clock.value), new Date(clock.value));
+  await watcher.poll();
+  assert.deepEqual(delivered.map((item) => item.project.project_id), [
+    'project-a-0123456789',
+    'project-b-0123456789',
+    'project-a-0123456789',
+  ]);
+
+  const unregistered = path.join(path.dirname(projectDir), 'unregistered');
+  await fs.mkdir(unregistered);
+  clock.value += 45_000;
+  await appendEvents(rollout, clock.value, [execEvent('node secret-work.js', unregistered)]);
+  await watcher.poll();
+  assert.equal(suppressed.length, 1);
+  assert.equal(suppressed[0].state, 'suppressed');
+  assert.equal(suppressed[0].reason, 'unregistered-project');
+  assert.doesNotMatch(JSON.stringify(suppressed[0]), /secret-work|"root"/);
+  watcher.stop();
+});
+
 test('Ambient Watch snapshots startup EOFs but reads a rollout created before first discovery from byte zero', { timeout: 3_000 }, async (t) => {
   const { projectDir, sessionsDir } = await setup(t);
   const clock = { value: Date.now() };

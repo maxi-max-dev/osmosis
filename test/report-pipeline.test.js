@@ -41,7 +41,7 @@ function deliveryOptions(harness, card) {
   };
 }
 
-function createHarness({ cards = [], generationQueueCap, provider = createProvider({ provider: 'none' }) } = {}) {
+function createHarness({ cards = [], generationQueueCap, ledger = null, provider = createProvider({ provider: 'none' }) } = {}) {
   let now = 1_000;
   const waits = [];
   const events = [];
@@ -99,6 +99,7 @@ function createHarness({ cards = [], generationQueueCap, provider = createProvid
     config,
     curriculumService,
     hub,
+    ledger,
     provider,
     replayService,
     state,
@@ -225,4 +226,59 @@ test('eligible reviews also wait behind the project-wide delivery pace', async (
   );
   assert.equal(cardEvents.at(-1).payload.concept_id, 'review-topic');
   assert.deepEqual(harness.waits, [12_000, 12_000, 12_000]);
+});
+
+test('report traces retain one report id through delivery, refusal, and provider failure', async () => {
+  const deliveredTrace = [];
+  const delivered = createHarness({ ledger: { append: (entry) => deliveredTrace.push(entry) } });
+  assert.equal(delivered.pipeline.accept(observedReport('delivered')), true);
+  await delivered.pipeline.whenIdle();
+  assert.deepEqual(
+    deliveredTrace.map((entry) => [entry.event, entry.state]),
+    [
+      ['accept', 'observed'],
+      ['provider-result', 'observed'],
+      ['delivery', 'delivered'],
+    ],
+  );
+  const deliveredId = deliveredTrace[0].report_id;
+  assert.equal(deliveredTrace.every((entry) => entry.report_id === deliveredId), true);
+  assert.equal(delivered.delivered[0].card.source.report_id, deliveredId);
+
+  const refusalTrace = [];
+  const full = createHarness({
+    cards: Array.from({ length: 5 }, (_, index) => ({ card_id: `pending-${index}`, concept_id: `pending-${index}`, state: { answered: false } })),
+    ledger: { append: (entry) => refusalTrace.push(entry) },
+  });
+  assert.equal(full.pipeline.accept(observedReport('full')), false);
+  assert.deepEqual(
+    refusalTrace.map((entry) => [entry.event, entry.state]),
+    [
+      ['accept', 'observed'],
+      ['refusal', 'waiting'],
+    ],
+  );
+
+  const failureTrace = [];
+  const failing = createHarness({
+    ledger: { append: (entry) => failureTrace.push(entry) },
+    provider: {
+      name: 'failing-provider',
+      supportsLiveCurriculum: false,
+      isSlow: false,
+      async generateCard() {
+        throw new Error('intentional provider failure');
+      },
+    },
+  });
+  assert.equal(failing.pipeline.accept(observedReport('failure')), true);
+  await failing.pipeline.whenIdle();
+  assert.deepEqual(
+    failureTrace.map((entry) => [entry.event, entry.state]),
+    [
+      ['accept', 'observed'],
+      ['failure', 'failed'],
+    ],
+  );
+  assert.equal(failing.events.some((event) => event.type === 'status' && event.payload.state === 'failed'), true);
 });

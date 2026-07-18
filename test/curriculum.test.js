@@ -117,3 +117,32 @@ test('live curriculum pacing waits 12 seconds after the first delivered card and
   assert.equal(skipped.deliver, false);
   assert.equal(skipped.state, 'skipped');
 });
+
+test('separate project channels keep independent pacing clocks and unanswered caps', async () => {
+  let now = 1_000;
+  const waitsA = [];
+  const waitsB = [];
+  const a = createHarness({
+    clock: () => now,
+    sleep: async (milliseconds) => {
+      waitsA.push(milliseconds);
+      now += milliseconds;
+    },
+  });
+  const b = createHarness({
+    clock: () => now,
+    sleep: async (milliseconds) => {
+      waitsB.push(milliseconds);
+      now += milliseconds;
+    },
+  });
+
+  await a.curriculum.markDelivered('a-first');
+  now = 2_000;
+  assert.deepEqual(await b.curriculum.beforeDelivery({ concept_id: 'b-first', concept_name: 'Project B first card' }), { deliver: true });
+  assert.deepEqual(waitsB, [], 'a delivery must not pace b');
+
+  assert.deepEqual(await a.curriculum.beforeDelivery({ concept_id: 'a-second', concept_name: 'Project A second card' }), { deliver: true });
+  assert.deepEqual(waitsA, [11_000]);
+  assert.deepEqual(waitsB, []);
+});

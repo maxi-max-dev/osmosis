@@ -61,7 +61,17 @@ codex \
   -c 'mcp_servers.osmosis.env={OSMOSIS_PROVIDER="none"}'
 ```
 
-The server inherits that launch directory, so each project keeps its own `.osmosis/` card and tree state while mastery remains user-level.
+The server resolves the nearest Git root as the project channel (or preserves an existing nested `.osmosis/` directory from an earlier Osmosis install). A browser wall owner is a local broker: it keeps each project's cards/tree under that project's `.osmosis/`, while user-wide mastery, the project registry, and activity ledgers live under `~/.osmosis/`. A second Codex project can safely register with the owner instead of mixing into the first project's wall.
+
+## Project channels
+
+One local wall can broker several Osmosis-enabled projects. The first project is hydrated immediately; other registered projects are summaries until you open their tab, keeping an old project from doing unnecessary provider work. Each tab has its own card queue and tree, while the shared mastery profile makes only deliberately global starter concepts carry gold mastery across projects.
+
+Browser-wall pacing is per channel: work in Project A never inserts a cross-project gap before Project B's next card. A user-level interruption throttle is deliberately reserved for a future notification adapter; it is a documented no-op in this browser-only release. Shared `profile.json` updates use a Node-core cross-process lock around read-modify-write, so concurrent answers and owner takeover preserve monotonic mastery and counters.
+
+The relay performs a local registration handshake before forwarding a report. It sends the canonical project root exactly once to receive an ephemeral capability token; subsequent relay requests carry only the opaque project id and token. This prevents a report request from choosing a filesystem path or another project's channel.
+
+Project summaries are persisted at `~/.osmosis/projects.json`. Per-project activity traces are durable, bounded JSONL files at `~/.osmosis/ledger/<project-id>.jsonl`; they explain whether a report was accepted, waiting, skipped, failed, or delivered. Archive hides an old project from the main tab rail without deleting its state; a restore control keeps it recoverable, and dormant channels automatically collapse into the archived group after 30 days. New activity unarchives a channel with a ready badge but never steals the active tab.
 
 ## Experimental: inline MCP Apps
 
@@ -82,6 +92,8 @@ The iframe uses only loopback endpoints: it refreshes `GET /inline-card` while w
 Ambient Watch is an **experimental opt-in** that fills the wait window without relying on an agent to remember `osmosis_report`. Enable it explicitly with `OSMOSIS_AMBIENT=1`. The HTTP-owning Osmosis server tails newly appended records from active local Codex rollout JSONL files and can turn qualifying activity into a lesson while the agent is still working. It attaches at the end of logs that already exist when the watcher starts, so it does not replay earlier session history.
 
 Ambient Watch reads raw rollout records locally, then derives a small, sanitized metadata set: allowlisted command/tool technologies, file extensions, known frameworks, and the session working directory used for project matching. The watcher ignores the `osmosis` MCP server and its isolated generator marker to avoid feedback loops. Raw rollout records stay local; however, when `OSMOSIS_PROVIDER=codex` or `openai` is configured, that provider may receive the sanitized metadata needed to generate the lesson. In `none` mode it stays on the machine. Record and replay modes leave Ambient Watch off for deterministic fixtures.
+
+Ambient observation never registers a project by itself. Only a runner/MCP registration can create a channel; an observed unknown root produces a sanitized `suppressed` trace in the user-level `unregistered` ledger, with no new tab or project-state write.
 
 The current rollout-tailing mechanism is deliberately experimental. `PostToolUse` lifecycle hooks are the production roadmap once Codex exposes a stable, verified desktop contract; see [the Ambient Capture spike note](docs/ambient-capture-spike.md). To enable the experiment:
 
@@ -125,11 +137,13 @@ Use one report per completed milestone. Every field is English. Do not batch mil
 | `OSMOSIS_TEMPLATE_DELAY_MS` | `900` | Delay before the local `none` starter lesson; useful for development and tests. |
 | `OSMOSIS_CARD_PACING_MS` | `12000` | Minimum spacing between delivered live curriculum cards after the first card. |
 | `OSMOSIS_UNANSWERED_CARD_CAP` | `5` | Maximum unanswered live curriculum cards before generation pauses and marks the direct concept as surfaced. |
+| `OSMOSIS_GLOBAL_REPORT_QUEUE_CAP` | `OSMOSIS_UNANSWERED_CARD_CAP` | Broker-wide active-plus-queued report cap. The broker allocates available work fairly across project channels. |
+| `OSMOSIS_PROJECT_ARCHIVE_AFTER_DAYS` | `30` | Days of inactivity before a non-current channel collapses into the archived group. This never deletes channel data. |
 | `OSMOSIS_CODEX_COMMAND` | `codex` | Local Codex executable used by the `codex` provider. |
 | `OSMOSIS_CODEX_TIMEOUT_MS` | `60000` | Per-attempt timeout for a `codex exec` generation call. |
 | `OPENAI_API_KEY` | unset | Required only by the future `openai` provider; never commit it. |
 
-Local data stays local by default: `~/.osmosis/profile.json` holds user-level mastery; the target project's `.osmosis/tree.json`, `cards.json`, and `replay.json` hold project-level state; and Codex's own rollout logs live below the configured sessions root. They are private/ignored. Only the sanitized replay fixture in this repository is intended to ship. When an Ambient Watch lesson uses the `codex` or `openai` generator, its sanitized metadata is sent through that configured provider's normal request path.
+Local data stays local by default: `~/.osmosis/profile.json` holds user-level mastery; `~/.osmosis/projects.json` holds lightweight project summaries; `~/.osmosis/ledger/` holds bounded per-project activity traces; and each target project's `.osmosis/tree.json`, `cards.json`, and `replay.json` hold channel state. Codex's own rollout logs live below the configured sessions root. They are private/ignored. Only the sanitized replay fixture in this repository is intended to ship. When an Ambient Watch lesson uses the `codex` or `openai` generator, its sanitized metadata is sent through that configured provider's normal request path.
 
 ## Testing
 
@@ -146,8 +160,11 @@ The suite verifies all completed P0 behavior:
 
 - an SSE connection receives a full `snapshot` followed by a template `card`;
 - raw MCP `initialize`, `tools/list`, `resources/read`, and sequential `tools/call` requests produce only valid JSON-RPC on stdout; inline resources expose the newest unanswered card or a calm empty state with localhost CSP metadata;
-- a second server instance keeps MCP stdio alive after its HTTP port is guarded, then relays its report to the primary instance;
-- `POST /answer` atomically persists `cards.json` and `~/.osmosis/profile.json`, includes the local iframe CORS response headers, and a reconnecting browser receives the answered state;
+- a second server instance keeps MCP stdio alive after its HTTP port is guarded, registers its canonical project once, then relays reports to its own primary-broker channel;
+- project-channel snapshots dual-emit legacy and v2 forms, keep background project events out of the active wall, and lazily hydrate a tab only when requested;
+- `POST /answer?project=<id>` keeps its frozen two-key body, atomically persists `cards.json` and `~/.osmosis/profile.json`, includes the local iframe CORS response headers, and a reconnecting browser receives the answered state;
+- profile mutations take a Node-core cross-process lock around their read-modify-write cycle, project provider concepts are namespaced, and legacy mastery records remain readable during migration;
+- activity ledgers trace report acceptance, refusal, provider result, failure, and delivery without treating a provider failure as idle;
 - an incorrect answer waits for two other delivered cards before it reappears;
 - Ambient Watch is opt-in, tails only the matching project's active rollout logs in isolated fixtures, labels patch observations separately from exec/MCP activity, respects bounded queue/pacing behavior, ignores Osmosis's own generator activity, runs only in the HTTP owner, and shuts down without retained timers;
 - record mode excludes starter cards and wrong-answer requeues from `.osmosis/replay.json`;
@@ -216,18 +233,18 @@ The included [sanitized-codex-replay.json](fixtures/sanitized-codex-replay.json)
 
 The [static replay page](docs/index.html) is a single deployable file in `docs/`: no API key, local server, or live agent is required. Configure GitHub Pages to deploy the `/docs` directory for a judge-facing URL. It renders the real Codex-provider fixture tree and cards, plus a separately sanitised Project B tree where `Animation loop` is visibly gold `CARRIED OVER` from the shared profile while only the new `Ferry movement` card is recorded. No public judge URL is claimed until a remote repository and GitHub Pages deployment exist.
 
-## Known limitation
+## Current boundary
 
-Run one Osmosis-enabled project at a time. Concurrent projects can relay reports to the same localhost HTTP owner and mix project state; this version does not isolate them.
+The broker is local to one user profile and one loopback wall. It is designed for several project channels on that machine, not for remote multi-user synchronization. Codex desktop/browser verification of the live multi-project UI remains an operator-run check.
 
 ## What's next
 
 - **MCP Apps inline hardening:** keep the experimental inline card current as the under-development Codex host interface matures, then package it with the runner.
-- **Plugin distribution:** package an npm runner and plugin shell so installation is repeatable and the Codex child-process cwd trap is contained.
+- **Plugin distribution:** keep evolving the npm runner and plugin shell so installation is repeatable and the Codex child-process cwd trap is contained.
 - **PostToolUse production path:** replace experimental rollout tailing when Codex exposes a stable, verified lifecycle-hook contract, preserving the same provenance and privacy boundaries.
 
 ## How Osmosis was built
 
-Codex built all current product code in one primary thread. The current `codex` provider uses local read-only `codex exec` for strict card and tree generation; when the API billing gate is cleared, the `openai` backend will use GPT-5.6 Structured Outputs through the same curriculum interface. The known limitation is intentional for the hackathon: the local server lives and dies with the Codex session.
+Codex built all current product code in one primary thread. The current `codex` provider uses local read-only `codex exec` for strict card and tree generation; when the API billing gate is cleared, the `openai` backend will use GPT-5.6 Structured Outputs through the same curriculum interface. The wall is intentionally local-first and lives with its local Codex session.
 
 The MCP is agent-agnostic even though the demo uses Codex.

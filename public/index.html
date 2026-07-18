@@ -25,11 +25,30 @@
           <span class="connection" id="connection">Connecting…</span>
         </header>
 
+        <nav class="project-rail" aria-label="Project channels">
+          <div class="project-tabs" id="project-tabs" role="tablist" aria-label="Active projects"></div>
+          <details class="archived-projects" id="archived-projects" hidden>
+            <summary>Archived projects <span class="archive-hint">kept, never deleted</span></summary>
+            <div class="project-tabs project-tabs--archived" id="archived-tabs" role="tablist" aria-label="Archived projects"></div>
+          </details>
+        </nav>
+
         <div class="toast" id="toast" role="status" aria-live="polite"></div>
         <section class="card-area" id="card-area" aria-live="polite"></section>
       </section>
     </main>
+    <aside class="activity-drawer" id="activity-drawer" aria-label="Project activity" hidden>
+      <div class="activity-drawer-header">
+        <div>
+          <p class="eyebrow">Why no card?</p>
+          <h2 id="activity-title">Project activity</h2>
+        </div>
+        <button class="activity-close" id="activity-close" type="button" aria-label="Close activity">×</button>
+      </div>
+      <ol class="activity-list" id="activity-list"></ol>
+    </aside>
     <footer class="mode-footer" id="mode-footer">live · none</footer>
+    <script src="/project-state.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>

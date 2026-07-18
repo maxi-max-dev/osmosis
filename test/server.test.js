@@ -366,6 +366,9 @@ test('SSE sends an empty snapshot followed by a template card', { timeout: 10_00
   const cleanup = createTestCleanup(t);
   const cwd = await temporaryProject(cleanup);
   const { port } = await startHttpServer(cleanup, { cwd, extraEnv: { OSMOSIS_TEMPLATE_DELAY_MS: '400' } });
+  const projectStateScript = await fetch(`http://127.0.0.1:${port}/project-state.js`);
+  assert.equal(projectStateScript.status, 200);
+  assert.match(await projectStateScript.text(), /applyBackgroundActivity/);
   const stream = await openTrackedEvents(cleanup, port);
 
   const snapshot = await stream.nextEvent();
@@ -507,6 +510,92 @@ test('an HTTP port loser continues serving MCP and relays its report to the prim
   }, 'the relayed report on the primary');
   assert.equal(reports.reports.at(-1).what_i_did, 'Verified the second server instance remains available over stdio.');
   assert.equal(reports.reports.at(-1).source, 'agent');
+});
+
+test('the port owner brokers registered project channels with a token, lazy snapshot, and scoped answers', { timeout: 15_000 }, async (t) => {
+  const cleanup = createTestCleanup(t);
+  const primaryCwd = await temporaryProject(cleanup);
+  const secondaryCwd = await temporaryProject(cleanup);
+  const sharedProfile = await temporaryProject(cleanup);
+  const { runner: primary, port } = await startHttpServer(cleanup, {
+    cwd: primaryCwd,
+    extraEnv: { OSMOSIS_PROFILE_DIR: sharedProfile, OSMOSIS_TEMPLATE_DELAY_MS: '60000' },
+  });
+  const stream = await openTrackedEvents(cleanup, port);
+  assert.equal((await stream.nextEvent()).type, 'snapshot');
+  const v2 = await stream.nextEvent();
+  assert.equal(v2.type, 'snapshot-v2');
+  assert.equal(v2.data.v, 2);
+  assert.equal(typeof v2.data.default_project_id, 'string');
+
+  const secondary = startTrackedServer(cleanup, {
+    cwd: secondaryCwd,
+    port,
+    extraEnv: { OSMOSIS_PROFILE_DIR: sharedProfile, OSMOSIS_TEMPLATE_DELAY_MS: '60000' },
+  });
+  await waitFor(() => secondary.stderr().includes('HTTP disabled'), 'the registered project relay');
+  secondary.child.stdin.write(
+    `${JSON.stringify(reportMessage(1, 'Project B channel', 'Delivered a lesson into the ferry viewer project.'))}\n`,
+  );
+  await waitFor(() => secondary.stdoutLines().length === 1, 'the project B MCP acknowledgement');
+
+  const projects = await waitFor(async () => {
+    const response = await fetch(`http://127.0.0.1:${port}/projects`);
+    const body = await response.json();
+    return body.projects.length >= 2 ? body.projects : null;
+  }, 'registered project summaries');
+  const canonicalSecondaryCwd = await fs.realpath(secondaryCwd);
+  const projectB = projects.find((project) => project.root === canonicalSecondaryCwd);
+  assert.ok(projectB, JSON.stringify({ projects, canonicalSecondaryCwd }));
+
+  const rejected = await fetch(`http://127.0.0.1:${port}/internal/reports?project=${encodeURIComponent(projectB.project_id)}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-osmosis-token': 'wrong-token' },
+    body: JSON.stringify({ task: 'Bad token', what_i_did: 'Must not be accepted.', stack_hints: [] }),
+  });
+  assert.equal(rejected.status, 403);
+
+  const reports = await waitFor(async () => {
+    const response = await fetch(`http://127.0.0.1:${port}/debug/reports?project=${encodeURIComponent(projectB.project_id)}`);
+    const body = await response.json();
+    return body.reports.some((report) => report.task === 'Project B channel') ? body.reports : null;
+  }, 'the broker-routed B report');
+  assert.equal(reports.at(-1).source, 'agent');
+
+  const bSnapshot = await fetch(`http://127.0.0.1:${port}/projects/${encodeURIComponent(projectB.project_id)}/snapshot`);
+  assert.equal(bSnapshot.status, 200);
+  const bProject = await bSnapshot.json();
+  assert.equal(bProject.cards.length, 1);
+  const activity = await fetch(`http://127.0.0.1:${port}/ledger?project=${encodeURIComponent(projectB.project_id)}&limit=2`);
+  assert.equal(activity.status, 200);
+  const activityBody = await activity.json();
+  assert.ok(activityBody.entries.length <= 2, 'ledger pagination stays bounded');
+  assert.equal(activityBody.entries.at(-1).state, 'delivered');
+  secondary.child.stdin.write(
+    `${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'resources/read', params: { uri: 'ui://osmosis/card.html' } })}\n`,
+  );
+  await waitFor(() => secondary.stdoutLines().length === 2, 'the relay inline-card proxy response');
+  const relayedInline = JSON.parse(secondary.stdoutLines().at(-1));
+  assert.match(relayedInline.result.contents[0].text, /Delivered a lesson into the ferry viewer project/);
+  assert.match(relayedInline.result.contents[0].text, new RegExp(`/answer\\?project=${encodeURIComponent(projectB.project_id)}`));
+  const answer = await fetch(`http://127.0.0.1:${port}/answer?project=${encodeURIComponent(projectB.project_id)}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ card_id: bProject.cards[0].card_id, chosen_index: 0 }),
+  });
+  assert.equal(answer.status, 200);
+  assert.equal((await answer.json()).strength, 2);
+
+  const archived = await fetch(`http://127.0.0.1:${port}/projects/${encodeURIComponent(projectB.project_id)}/archive`, { method: 'POST' });
+  assert.equal(archived.status, 200);
+  assert.equal((await archived.json()).project.archived, true);
+  const restored = await fetch(`http://127.0.0.1:${port}/projects/${encodeURIComponent(projectB.project_id)}/unarchive`, { method: 'POST' });
+  assert.equal(restored.status, 200);
+  assert.equal((await restored.json()).project.archived, false);
+
+  const defaultSnapshot = await fetch(`http://127.0.0.1:${port}/projects/${encodeURIComponent(v2.data.default_project_id)}/snapshot`);
+  assert.equal((await defaultSnapshot.json()).cards.length, 0, 'background project cards never enter the default channel');
+  assert.equal(primary.stdout().includes('Project B channel'), false, 'MCP protocol stays local to each process');
 });
 
 test('a port loser takes over the local pipeline and watcher after the owner exits', { timeout: 15_000 }, async (t) => {
@@ -991,12 +1080,13 @@ test('the Codex provider builds a first tree and source-linked card without a te
   const tree = await nextEventOfType(stream, 'tree');
   assert.equal(tree.data.nodes.length, 13);
   const card = await nextEventOfType(stream, 'card');
-  assert.equal(card.data.concept_id, 'http');
+  assert.match(card.data.concept_id, /:http$/);
+  assert.equal(tree.data.nodes.every((node) => node.concept_id.includes(':')), true);
   assert.equal(card.data.source.what_i_did, 'Added an HTTP route for the app.');
   assert.equal(runner.stdoutLines().length, 1);
 });
 
-test('a failed Codex generation retries then returns to idle without crashing the MCP server', { timeout: 10_000 }, async (t) => {
+test('a failed Codex generation retries then records a failed state without crashing the MCP server', { timeout: 10_000 }, async (t) => {
   const cleanup = createTestCleanup(t);
   const cwd = await temporaryProject(cleanup);
   const codexCommand = await writeFailingCodexShim(cwd);
@@ -1010,8 +1100,8 @@ test('a failed Codex generation retries then returns to idle without crashing th
   runner.child.stdin.write(`${JSON.stringify(reportMessage(1, 'Failed generation', 'Tried a guarded Codex lesson generation.', ['Codex']))}\n`);
   await waitFor(() => runner.stdoutLines().length === 1, 'the failed-generation acknowledgement');
   assert.equal((await nextEventOfType(stream, 'status')).data.state, 'generating');
-  const idle = await nextEventMatching(stream, (event) => event.type === 'status' && event.data.state === 'idle', 'a calm idle status');
-  assert.equal(idle.data.message, 'Osmosis will wait for the next milestone.');
+  const failed = await nextEventMatching(stream, (event) => event.type === 'status' && event.data.state === 'failed', 'an explicit failed status');
+  assert.match(failed.data.message, /could not make a lesson/i);
   assert.equal((await health(port)).provider, 'codex');
   assert.equal(runner.stdoutLines().length, 1);
 });
