@@ -1,9 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { once } = require('node:events');
 const fs = require('node:fs/promises');
-const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
@@ -15,17 +13,34 @@ function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-async function reservePort() {
-  const server = net.createServer();
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const { port } = server.address();
-  await new Promise((resolve) => server.close(resolve));
-  return port;
+function createTestCleanup(testContext) {
+  const cleanups = [];
+
+  testContext.after(async () => {
+    const failures = [];
+    for (const cleanup of cleanups.reverse()) {
+      try {
+        await cleanup();
+      } catch (error) {
+        failures.push(error);
+      }
+    }
+
+    if (failures.length) {
+      throw new AggregateError(failures, 'Test cleanup failed.');
+    }
+  });
+
+  return {
+    add(cleanup) {
+      cleanups.push(cleanup);
+    },
+  };
 }
 
-async function temporaryProject(testContext) {
+async function temporaryProject(cleanup) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'osmosis-test-'));
-  testContext.after(() => fs.rm(directory, { recursive: true, force: true }));
+  cleanup.add(() => fs.rm(directory, { recursive: true, force: true }));
   return directory;
 }
 
@@ -43,8 +58,27 @@ function startServer({ cwd, port, extraEnv = {} }) {
   });
   let stdout = '';
   let stderr = '';
+  let exitDetails = null;
+  let closeDetails = null;
+  const exited = new Promise((resolve) => {
+    child.once('exit', (code, signal) => {
+      exitDetails = { code, signal };
+      resolve(exitDetails);
+    });
+    child.once('error', (error) => {
+      exitDetails = { error };
+      resolve(exitDetails);
+    });
+  });
+  const closed = new Promise((resolve) => {
+    child.once('close', (code, signal) => {
+      closeDetails = { code, signal };
+      resolve(closeDetails);
+    });
+  });
   child.stdout.setEncoding('utf8');
   child.stderr.setEncoding('utf8');
+  child.stdin.on('error', () => {});
   child.stdout.on('data', (chunk) => {
     stdout += chunk;
   });
@@ -57,21 +91,80 @@ function startServer({ cwd, port, extraEnv = {} }) {
     stderr: () => stderr,
     stdout: () => stdout,
     stdoutLines: () => stdout.trim().split('\n').filter(Boolean),
+    exited,
+    exitDetails: () => exitDetails,
+    closed,
+    closeDetails: () => closeDetails,
+    stopPromise: null,
   };
 }
 
+async function waitForClose(runner, timeoutMs) {
+  let timer;
+  try {
+    return await Promise.race([
+      runner.closed.then(() => true),
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve(false), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function stopServer(runner) {
-  if (runner.child.exitCode !== null || runner.child.signalCode) {
-    return;
+  if (runner.stopPromise) {
+    return runner.stopPromise;
   }
 
-  runner.child.kill('SIGINT');
-  await Promise.race([
-    once(runner.child, 'exit'),
-    delay(1_000).then(() => {
-      runner.child.kill('SIGKILL');
-    }),
-  ]);
+  runner.stopPromise = (async () => {
+    if (runner.child.exitCode !== null || runner.child.signalCode !== null) {
+      if (await waitForClose(runner, 1_000)) {
+        return;
+      }
+      throw new Error(`Timed out closing server process ${runner.child.pid}.`);
+    }
+
+    runner.child.stdin.end();
+    runner.child.kill('SIGTERM');
+    if (await waitForClose(runner, 1_000)) {
+      return;
+    }
+
+    runner.child.kill('SIGKILL');
+    if (await waitForClose(runner, 1_000)) {
+      return;
+    }
+
+    throw new Error(`Timed out stopping server process ${runner.child.pid}.`);
+  })();
+
+  return runner.stopPromise;
+}
+
+function listeningPort(runner) {
+  const match = runner.stderr().match(/HTTP listening on http:\/\/127\.0\.0\.1:(\d+)/);
+  return match ? Number(match[1]) : null;
+}
+
+function startTrackedServer(cleanup, options) {
+  const runner = startServer(options);
+  cleanup.add(() => stopServer(runner));
+  return runner;
+}
+
+async function startHttpServer(cleanup, { cwd, extraEnv = {} }) {
+  const runner = startTrackedServer(cleanup, { cwd, port: 0, extraEnv });
+  const port = await waitFor(() => listeningPort(runner), 'an assigned HTTP port');
+  await waitFor(() => health(port), 'the HTTP server');
+  return { runner, port };
+}
+
+async function openTrackedEvents(cleanup, port) {
+  const stream = await openEvents(port);
+  cleanup.add(() => stream.close());
+  return stream;
 }
 
 async function waitFor(check, description) {
@@ -131,7 +224,9 @@ async function openEvents(port) {
   }
 
   return {
-    close: () => reader.cancel(),
+    async close() {
+      await reader.cancel().catch(() => {});
+    },
     nextEvent,
   };
 }
@@ -214,14 +309,10 @@ function reportMessage(id, task, whatIDid, stackHints = ['Node.js', 'MCP']) {
 }
 
 test('SSE sends an empty snapshot followed by a template card', { timeout: 10_000 }, async (t) => {
-  const cwd = await temporaryProject(t);
-  const port = await reservePort();
-  const runner = startServer({ cwd, port, extraEnv: { OSMOSIS_TEMPLATE_DELAY_MS: '400' } });
-  t.after(() => stopServer(runner));
-
-  await waitFor(() => health(port), 'the HTTP server');
-  const stream = await openEvents(port);
-  t.after(() => stream.close());
+  const cleanup = createTestCleanup(t);
+  const cwd = await temporaryProject(cleanup);
+  const { port } = await startHttpServer(cleanup, { cwd, extraEnv: { OSMOSIS_TEMPLATE_DELAY_MS: '400' } });
+  const stream = await openTrackedEvents(cleanup, port);
 
   const snapshot = await stream.nextEvent();
   assert.equal(snapshot.type, 'snapshot');
@@ -235,14 +326,10 @@ test('SSE sends an empty snapshot followed by a template card', { timeout: 10_00
 });
 
 test('MCP stdio accepts two sequential reports without corrupting stdout', { timeout: 10_000 }, async (t) => {
-  const cwd = await temporaryProject(t);
-  const port = await reservePort();
-  const runner = startServer({ cwd, port });
-  t.after(() => stopServer(runner));
-
-  await waitFor(() => health(port), 'the HTTP server');
-  const stream = await openEvents(port);
-  t.after(() => stream.close());
+  const cleanup = createTestCleanup(t);
+  const cwd = await temporaryProject(cleanup);
+  const { runner, port } = await startHttpServer(cleanup, { cwd });
+  const stream = await openTrackedEvents(cleanup, port);
   assert.equal((await stream.nextEvent()).type, 'snapshot');
 
   runner.child.stdin.write(`${rawMcpMessages().map(JSON.stringify).join('\n')}\n`);
@@ -278,14 +365,10 @@ test('MCP stdio accepts two sequential reports without corrupting stdout', { tim
 });
 
 test('an HTTP port loser continues serving MCP and relays its report to the primary', { timeout: 10_000 }, async (t) => {
-  const cwd = await temporaryProject(t);
-  const port = await reservePort();
-  const primary = startServer({ cwd, port });
-  t.after(() => stopServer(primary));
-
-  await waitFor(() => health(port), 'the primary HTTP server');
-  const secondary = startServer({ cwd, port });
-  t.after(() => stopServer(secondary));
+  const cleanup = createTestCleanup(t);
+  const cwd = await temporaryProject(cleanup);
+  const { runner: primary, port } = await startHttpServer(cleanup, { cwd });
+  const secondary = startTrackedServer(cleanup, { cwd, port });
   await waitFor(() => secondary.stderr().includes('HTTP disabled'), 'the port guard');
 
   secondary.child.stdin.write(
@@ -321,15 +404,11 @@ test('an HTTP port loser continues serving MCP and relays its report to the prim
 });
 
 test('a correct answer persists cards and user mastery, then survives an SSE reload snapshot', { timeout: 10_000 }, async (t) => {
-  const cwd = await temporaryProject(t);
+  const cleanup = createTestCleanup(t);
+  const cwd = await temporaryProject(cleanup);
   const profileDir = path.join(cwd, 'profile');
-  const port = await reservePort();
-  const runner = startServer({ cwd, port, extraEnv: { OSMOSIS_PROFILE_DIR: profileDir } });
-  t.after(() => stopServer(runner));
-
-  await waitFor(() => health(port), 'the HTTP server');
-  const stream = await openEvents(port);
-  t.after(() => stream.close());
+  const { runner, port } = await startHttpServer(cleanup, { cwd, extraEnv: { OSMOSIS_PROFILE_DIR: profileDir } });
+  const stream = await openTrackedEvents(cleanup, port);
   assert.equal((await stream.nextEvent()).type, 'snapshot');
 
   runner.child.stdin.write(`${JSON.stringify(reportMessage(1, 'Answer loop', 'Created a lesson that can be answered and saved.'))}\n`);
@@ -363,8 +442,7 @@ test('a correct answer persists cards and user mastery, then survives an SSE rel
   assert.equal(cardDocument.cards[0].state.answered, true);
   assert.equal(cardDocument.cards[0].state.correct, true);
 
-  const reloadStream = await openEvents(port);
-  t.after(() => reloadStream.close());
+  const reloadStream = await openTrackedEvents(cleanup, port);
   const reloadSnapshot = await reloadStream.nextEvent();
   const reloadedCard = reloadSnapshot.data.cards.find((item) => item.card_id === card.card_id);
   assert.equal(reloadedCard.state.answered, true);
@@ -374,14 +452,10 @@ test('a correct answer persists cards and user mastery, then survives an SSE rel
 });
 
 test('a wrong answer returns only after two other delivered cards in the same session', { timeout: 10_000 }, async (t) => {
-  const cwd = await temporaryProject(t);
-  const port = await reservePort();
-  const runner = startServer({ cwd, port });
-  t.after(() => stopServer(runner));
-
-  await waitFor(() => health(port), 'the HTTP server');
-  const stream = await openEvents(port);
-  t.after(() => stream.close());
+  const cleanup = createTestCleanup(t);
+  const cwd = await temporaryProject(cleanup);
+  const { runner, port } = await startHttpServer(cleanup, { cwd });
+  const stream = await openTrackedEvents(cleanup, port);
   assert.equal((await stream.nextEvent()).type, 'snapshot');
 
   runner.child.stdin.write(`${JSON.stringify(reportMessage(1, 'First report', 'Delivered the first report card.'))}\n`);
@@ -414,18 +488,13 @@ test('a wrong answer returns only after two other delivered cards in the same se
 });
 
 test('record mode creates a clean replay from reports but excludes starter cards and requeues', { timeout: 10_000 }, async (t) => {
-  const cwd = await temporaryProject(t);
-  const port = await reservePort();
-  const runner = startServer({
+  const cleanup = createTestCleanup(t);
+  const cwd = await temporaryProject(cleanup);
+  const { runner, port } = await startHttpServer(cleanup, {
     cwd,
-    port,
     extraEnv: { OSMOSIS_MODE: 'record', OSMOSIS_TEMPLATE_DELAY_MS: '250' },
   });
-  t.after(() => stopServer(runner));
-
-  await waitFor(() => health(port), 'the record-mode server');
-  const stream = await openEvents(port);
-  t.after(() => stream.close());
+  const stream = await openTrackedEvents(cleanup, port);
   assert.deepEqual((await stream.nextEvent()).data.cards, []);
   await delay(350);
   await assert.rejects(fs.readFile(path.join(cwd, '.osmosis', 'cards.json'), 'utf8'), { code: 'ENOENT' });
@@ -461,8 +530,8 @@ test('record mode creates a clean replay from reports but excludes starter cards
 });
 
 test('replay mode emits recorded concepts in order for real reports and stops cleanly at exhaustion', { timeout: 10_000 }, async (t) => {
-  const cwd = await temporaryProject(t);
-  const port = await reservePort();
+  const cleanup = createTestCleanup(t);
+  const cwd = await temporaryProject(cleanup);
   await fs.mkdir(path.join(cwd, '.osmosis'), { recursive: true });
   await fs.writeFile(
     path.join(cwd, '.osmosis', 'replay.json'),
@@ -504,16 +573,11 @@ test('replay mode emits recorded concepts in order for real reports and stops cl
       ],
     }),
   );
-  const runner = startServer({
+  const { runner, port } = await startHttpServer(cleanup, {
     cwd,
-    port,
     extraEnv: { OSMOSIS_MODE: 'replay', OSMOSIS_TEMPLATE_DELAY_MS: '250' },
   });
-  t.after(() => stopServer(runner));
-
-  await waitFor(() => health(port), 'the replay-mode server');
-  const stream = await openEvents(port);
-  t.after(() => stream.close());
+  const stream = await openTrackedEvents(cleanup, port);
   assert.deepEqual((await stream.nextEvent()).data.cards, []);
   await delay(350);
   await assert.rejects(fs.readFile(path.join(cwd, '.osmosis', 'cards.json'), 'utf8'), { code: 'ENOENT' });
@@ -540,23 +604,19 @@ test('replay mode emits recorded concepts in order for real reports and stops cl
 });
 
 test('a mastered none-provider concept carries across projects without generating another card', { timeout: 15_000 }, async (t) => {
-  const root = await temporaryProject(t);
+  const cleanup = createTestCleanup(t);
+  const root = await temporaryProject(cleanup);
   const projectA = path.join(root, 'project-a');
   const projectB = path.join(root, 'project-b');
   const profileDir = path.join(root, 'shared-profile');
   await fs.mkdir(projectA, { recursive: true });
   await fs.mkdir(projectB, { recursive: true });
 
-  const portA = await reservePort();
-  const serverA = startServer({
+  const { runner: serverA, port: portA } = await startHttpServer(cleanup, {
     cwd: projectA,
-    port: portA,
     extraEnv: { OSMOSIS_PROFILE_DIR: profileDir, OSMOSIS_TEMPLATE_DELAY_MS: '60000' },
   });
-  t.after(() => stopServer(serverA));
-  await waitFor(() => health(portA), 'project A');
-  const streamA = await openEvents(portA);
-  t.after(() => streamA.close());
+  const streamA = await openTrackedEvents(cleanup, portA);
   await streamA.nextEvent();
 
   serverA.child.stdin.write(`${JSON.stringify(reportMessage(1, 'Project A M1', 'Created the first project lesson.'))}\n`);
@@ -582,17 +642,13 @@ test('a mastered none-provider concept carries across projects without generatin
     }),
   );
 
-  const portB = await reservePort();
-  const serverB = startServer({
+  const { runner: serverB, port: portB } = await startHttpServer(cleanup, {
     cwd: projectB,
-    port: portB,
     extraEnv: { OSMOSIS_PROFILE_DIR: profileDir, OSMOSIS_TEMPLATE_DELAY_MS: '60000' },
   });
-  t.after(() => stopServer(serverB));
-  const healthB = await waitFor(() => health(portB), 'project B');
+  const healthB = await health(portB);
   assert.equal(healthB.processCwd, await fs.realpath(projectB));
-  const streamB = await openEvents(portB);
-  t.after(() => streamB.close());
+  const streamB = await openTrackedEvents(cleanup, portB);
   const snapshotB = await streamB.nextEvent();
   assert.equal(snapshotB.data.strengths['feedback-loop'].strength, 2);
   assert.equal(snapshotB.data.tree.nodes.length, 2);

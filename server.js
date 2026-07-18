@@ -96,6 +96,10 @@ async function main() {
   const httpEnabled = await listen(server, config.port, config.host);
   reportDelivery = httpEnabled ? 'primary' : 'relay';
   if (httpEnabled) {
+    const address = server.address();
+    if (address && typeof address === 'object') {
+      config.port = address.port;
+    }
     log(`HTTP listening on http://${config.host}:${config.port}`, `cwd=${config.cwd}`);
   } else {
     log(`HTTP disabled because ${config.host}:${config.port} is already in use; continuing with MCP stdio only.`);
@@ -129,6 +133,7 @@ async function main() {
     hub.close();
     if (httpEnabled) {
       server.close(() => process.exit(0));
+      server.closeAllConnections?.();
     } else {
       process.exit(0);
     }
