@@ -6,6 +6,24 @@ This is a plain-JavaScript, local-first MCP server and browser UI built for the 
 
 > Build status: Steps 1–3, 5, and 6 are complete and verified. Step 4 now has a provider-neutral curriculum pipeline plus a local Codex generator. The OpenAI API backend remains gated on API billing and an API key.
 
+## Quick start — one command
+
+```bash
+npx github:maxi-max-dev/osmosis
+```
+
+For this GitHub `npx` path, install Git and Node.js 20 or later first. On an interactive first run, Osmosis asks the required question below; answer `y` here to mount it into Codex and enable the full experience while Codex works:
+
+```text
+Mount Osmosis into your Codex so lessons appear while it works? (y/n)
+```
+
+Without Codex, Osmosis still opens the local browser wall with template lessons. If you prefer not to use `npx`, download the repository ZIP, extract it, then run the normal local fallback from its root:
+
+```bash
+npm start
+```
+
 ## Requirements and local run
 
 - Node.js 20 or later

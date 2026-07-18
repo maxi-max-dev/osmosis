@@ -4,6 +4,17 @@
   "private": true,
   "description": "A learning companion that turns an AI coding agent's milestones into lessons.",
   "license": "MIT",
+  "bin": {
+    "osmosis": "./bin/osmosis.js"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "public/",
+    "server.js",
+    "LICENSE",
+    "README.md"
+  ],
   "scripts": {
     "start": "node server.js",
     "test": "node --test"
