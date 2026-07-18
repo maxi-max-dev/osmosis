@@ -45,6 +45,20 @@ codex \
 
 The server inherits that launch directory, so each project keeps its own `.osmosis/` card and tree state while mastery remains user-level.
 
+## Experimental: inline MCP Apps
+
+The browser learning wall remains Osmosis's primary form. An optional experimental MCP Apps surface can also place the newest unanswered lesson directly in the Codex desktop conversation flow.
+
+MCP Apps support is under development in Codex and is off by default. Enable the feature, then fully restart the Codex desktop app before launching Codex with the normal Osmosis MCP configuration:
+
+```bash
+codex features enable enable_mcp_apps
+```
+
+When the host supports it, the `osmosis_report` response points to a dynamic local `ui://osmosis/card.html` resource. It shows the newest unanswered lesson, its agent-report source line, three answer choices, and the current tree/queue progress. The report acknowledgement remains non-blocking, so a slow provider can briefly show the calm empty state before its first card is generated; that empty iframe silently refreshes the loopback `/inline-card` view every 2.5 seconds until a real lesson is ready.
+
+The iframe uses only loopback endpoints: it refreshes `GET /inline-card` while waiting, then attempts to save an answer with `POST http://127.0.0.1:4321/answer` (or the configured local port). They deliberately permit permissive CORS, including private-network preflight, so a sandboxed local tool can reach them. This is an intentional local-tool tradeoff; the primary browser wall does not depend on MCP Apps. If the host rejects the answer connection or CSP allowance, the inline card shows local right/wrong feedback and the explicit fallback note `answer synced on your wall only` rather than claiming that a mastery update was saved.
+
 ## Agent instruction
 
 Copy or merge the root [AGENTS.md](AGENTS.md) into the **target project** that Codex will work in. The Osmosis repository's own AGENTS file is a template; it is not automatically read when Codex is launched from another project.
@@ -93,9 +107,9 @@ Each test uses an OS-assigned port and a self-contained teardown: SSE readers cl
 The suite verifies all completed P0 behavior:
 
 - an SSE connection receives a full `snapshot` followed by a template `card`;
-- raw MCP `initialize`, `tools/list`, and two sequential `tools/call` requests produce only valid JSON-RPC on stdout;
+- raw MCP `initialize`, `tools/list`, `resources/read`, and sequential `tools/call` requests produce only valid JSON-RPC on stdout; inline resources expose the newest unanswered card or a calm empty state with localhost CSP metadata;
 - a second server instance keeps MCP stdio alive after its HTTP port is guarded, then relays its report to the primary instance;
-- `POST /answer` atomically persists `cards.json` and `~/.osmosis/profile.json`, and a reconnecting browser receives the answered state;
+- `POST /answer` atomically persists `cards.json` and `~/.osmosis/profile.json`, includes the local iframe CORS response headers, and a reconnecting browser receives the answered state;
 - an incorrect answer waits for two other delivered cards before it reappears;
 - record mode excludes starter cards and wrong-answer requeues from `.osmosis/replay.json`;
 - replay mode uses real reports to emit sanitized recorded cards in order, then finishes calmly when exhausted;
@@ -169,7 +183,7 @@ Run one Osmosis-enabled project at a time. Concurrent projects can relay reports
 
 ## What's next
 
-- **MCP Apps inline rendering:** when Codex's `enable_mcp_apps` gate opens, render Osmosis cards natively in the conversation flow.
+- **MCP Apps inline hardening:** keep the experimental inline card current as the under-development Codex host interface matures, then package it with the runner.
 - **Plugin distribution:** package an npm runner and plugin shell so installation is repeatable and the Codex child-process cwd trap is contained.
 - **Ambient Capture:** deferred after this round's spike. `PostToolUse` exposes the needed edit metadata, but Osmosis will add the non-blocking observer only after a fresh, trusted desktop session proves edit → hook → debounce → card end-to-end; observed cards will remain visibly distinct from agent reports.
 

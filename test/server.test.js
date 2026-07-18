@@ -399,8 +399,25 @@ test('MCP stdio accepts two sequential reports without corrupting stdout', { tim
 
   const status = await nextEventOfType(stream, 'status');
   assert.equal(status.data.report.what_i_did, 'Built and verified the HTTP and SSE skeleton with a template lesson.');
-  const card = await nextEventOfType(stream, 'card');
-  assert.equal(card.data.source.what_i_did, 'Built and verified the HTTP and SSE skeleton with a template lesson.');
+  const firstCard = await nextEventOfType(stream, 'card');
+  assert.equal(firstCard.data.source.what_i_did, 'Built and verified the HTTP and SSE skeleton with a template lesson.');
+  const latestCard = await nextEventOfType(stream, 'card');
+  assert.equal(latestCard.data.source.what_i_did, 'Added the MCP reporting tool and verified a second sequential report.');
+
+  runner.child.stdin.write(
+    `${JSON.stringify({ jsonrpc: '2.0', id: 5, method: 'resources/read', params: { uri: 'ui://osmosis/card.html' } })}\n`,
+  );
+  await waitFor(() => runner.stdoutLines().length === 5, 'the inline MCP resource');
+  const inlineResource = JSON.parse(runner.stdoutLines().at(-1));
+  assert.equal(inlineResource.id, 5);
+  assert.equal(inlineResource.result.contents[0].mimeType, 'text/html');
+  assert.match(inlineResource.result.contents[0].text, /Added the MCP reporting tool and verified a second sequential report/);
+  assert.equal(inlineResource.result.contents[0]._meta.ui.csp.connectDomains[0], `http://127.0.0.1:${port}`);
+
+  const refreshedInlineCard = await fetch(`http://127.0.0.1:${port}/inline-card`);
+  assert.equal(refreshedInlineCard.status, 200);
+  assert.equal(refreshedInlineCard.headers.get('access-control-allow-origin'), '*');
+  assert.match(await refreshedInlineCard.text(), /Added the MCP reporting tool and verified a second sequential report/);
 
   const reports = await (await fetch(`http://127.0.0.1:${port}/debug/reports`)).json();
   assert.deepEqual(
@@ -409,7 +426,39 @@ test('MCP stdio accepts two sequential reports without corrupting stdout', { tim
   );
 
   await delay(100);
-  assert.equal(runner.stdoutLines().length, 4);
+  assert.equal(runner.stdoutLines().length, 5);
+});
+
+test('an empty inline MCP card refreshes to the delivered lesson without blocking the report', { timeout: 10_000 }, async (t) => {
+  const cleanup = createTestCleanup(t);
+  const cwd = await temporaryProject(cleanup);
+  const { runner, port } = await startHttpServer(cleanup, {
+    cwd,
+    extraEnv: { OSMOSIS_TEMPLATE_DELAY_MS: '60000' },
+  });
+  const stream = await openTrackedEvents(cleanup, port);
+  assert.equal((await stream.nextEvent()).type, 'snapshot');
+
+  runner.child.stdin.write(
+    `${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'resources/read', params: { uri: 'ui://osmosis/card.html' } })}\n`,
+  );
+  await waitFor(() => runner.stdoutLines().length === 1, 'the empty inline resource');
+  const emptyResource = JSON.parse(runner.stdoutLines()[0]);
+  assert.match(emptyResource.result.contents[0].text, /data-osmosis-inline-card="pending"/);
+  assert.match(emptyResource.result.contents[0].text, new RegExp(`http://127\\.0\\.0\\.1:${port}/inline-card`));
+
+  runner.child.stdin.write(
+    `${JSON.stringify(reportMessage(2, 'Inline refresh', 'Generated a lesson after the inline resource was already open.'))}\n`,
+  );
+  await waitFor(() => runner.stdoutLines().length === 2, 'the non-blocking report acknowledgement');
+  const card = (await nextEventOfType(stream, 'card')).data;
+  assert.equal(card.source.task, 'Inline refresh');
+
+  const refreshed = await fetch(`http://127.0.0.1:${port}/inline-card`);
+  assert.equal(refreshed.status, 200);
+  const html = await refreshed.text();
+  assert.match(html, /data-osmosis-inline-card="ready"/);
+  assert.match(html, /Generated a lesson after the inline resource was already open/);
 });
 
 test('an HTTP port loser continues serving MCP and relays its report to the primary', { timeout: 10_000 }, async (t) => {
@@ -463,12 +512,28 @@ test('a correct answer persists cards and user mastery, then survives an SSE rel
   await waitFor(() => runner.stdoutLines().length === 1, 'the report acknowledgement');
   const card = (await nextEventOfType(stream, 'card')).data;
 
+  const preflight = await fetch(`http://127.0.0.1:${port}/answer`, {
+    method: 'OPTIONS',
+    headers: {
+      Origin: 'null',
+      'Access-Control-Request-Method': 'POST',
+      'Access-Control-Request-Headers': 'content-type',
+      'Access-Control-Request-Private-Network': 'true',
+    },
+  });
+  assert.equal(preflight.status, 204);
+  assert.equal(preflight.headers.get('access-control-allow-origin'), '*');
+  assert.match(preflight.headers.get('access-control-allow-methods'), /POST/);
+  assert.match(preflight.headers.get('access-control-allow-headers'), /Content-Type/i);
+  assert.equal(preflight.headers.get('access-control-allow-private-network'), 'true');
+
   const response = await fetch(`http://127.0.0.1:${port}/answer`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ card_id: card.card_id, chosen_index: 0 }),
   });
   assert.equal(response.status, 200);
+  assert.equal(response.headers.get('access-control-allow-origin'), '*');
   const answer = await response.json();
   assert.deepEqual(Object.keys(answer).sort(), ['correct', 'explanation', 'strength']);
   assert.deepEqual(answer, {

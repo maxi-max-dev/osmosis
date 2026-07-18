@@ -9,6 +9,7 @@ const { createCardService } = require('./lib/card-service');
 const { createCurriculumService } = require('./lib/curriculum-service');
 const { createAnswerService } = require('./lib/answer-service');
 const { createHttpHandler } = require('./lib/http');
+const { renderInlineCard } = require('./lib/inline-card');
 const { log } = require('./lib/log');
 const { createMcpServer } = require('./lib/mcp');
 const { createProvider } = require('./lib/provider');
@@ -91,6 +92,18 @@ async function main() {
     });
   }
 
+  function inlineAnswerOrigin() {
+    return `http://127.0.0.1:${config.port}`;
+  }
+
+  function inlineCardHtml() {
+    return renderInlineCard({
+      state,
+      answerUrl: `${inlineAnswerOrigin()}/answer`,
+      refreshUrl: `${inlineAnswerOrigin()}/inline-card`,
+    });
+  }
+
   const handler = createHttpHandler({
     config,
     hub,
@@ -98,11 +111,16 @@ async function main() {
     recentReports: reportPipeline.recentReports,
     acceptInternalReport: reportPipeline.accept,
     answerCard: answerService.answer,
+    inlineCardHtml,
   });
   const server = http.createServer((request, response) => {
     void handler(request, response);
   });
-  const mcp = createMcpServer({ onReport: acceptMcpReport });
+  const mcp = createMcpServer({
+    onReport: acceptMcpReport,
+    getInlineCardHtml: inlineCardHtml,
+    getInlineAnswerOrigin: inlineAnswerOrigin,
+  });
   mcp.start();
 
   const httpEnabled = await listen(server, config.port, config.host);
