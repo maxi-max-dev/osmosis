@@ -251,6 +251,8 @@ test('MCP stdio accepts two sequential reports without corrupting stdout', { tim
   assert.equal(responses[2].result.content[0].text, 'Osmosis recorded this milestone.');
   assert.equal(responses[3].result.content[0].text, 'Osmosis recorded this milestone.');
 
+  const status = await nextEventOfType(stream, 'status');
+  assert.equal(status.data.report.what_i_did, 'Built and verified the HTTP and SSE skeleton with a template lesson.');
   const card = await nextEventOfType(stream, 'card');
   assert.equal(card.data.source.what_i_did, 'Built and verified the HTTP and SSE skeleton with a template lesson.');
 
