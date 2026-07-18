@@ -1,0 +1,401 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const { once } = require('node:events');
+const fs = require('node:fs/promises');
+const net = require('node:net');
+const os = require('node:os');
+const path = require('node:path');
+const { spawn } = require('node:child_process');
+const test = require('node:test');
+
+const SERVER_PATH = path.resolve(__dirname, '..', 'server.js');
+
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function reservePort() {
+  const server = net.createServer();
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  await new Promise((resolve) => server.close(resolve));
+  return port;
+}
+
+async function temporaryProject(testContext) {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'osmosis-test-'));
+  testContext.after(() => fs.rm(directory, { recursive: true, force: true }));
+  return directory;
+}
+
+function startServer({ cwd, port, extraEnv = {} }) {
+  const child = spawn(process.execPath, [SERVER_PATH], {
+    cwd,
+    env: {
+      ...process.env,
+      OSMOSIS_PORT: String(port),
+      OSMOSIS_TEMPLATE_DELAY_MS: '10000',
+      OSMOSIS_PROFILE_DIR: path.join(cwd, '.test-profile'),
+      ...extraEnv,
+    },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', (chunk) => {
+    stdout += chunk;
+  });
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk;
+  });
+
+  return {
+    child,
+    stderr: () => stderr,
+    stdout: () => stdout,
+    stdoutLines: () => stdout.trim().split('\n').filter(Boolean),
+  };
+}
+
+async function stopServer(runner) {
+  if (runner.child.exitCode !== null || runner.child.signalCode) {
+    return;
+  }
+
+  runner.child.kill('SIGINT');
+  await Promise.race([
+    once(runner.child, 'exit'),
+    delay(1_000).then(() => {
+      runner.child.kill('SIGKILL');
+    }),
+  ]);
+}
+
+async function waitFor(check, description) {
+  const deadline = Date.now() + 5_000;
+  let lastError;
+  while (Date.now() < deadline) {
+    try {
+      const value = await check();
+      if (value) {
+        return value;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+    await delay(20);
+  }
+  throw new Error(`Timed out waiting for ${description}${lastError ? `: ${lastError.message}` : ''}`);
+}
+
+async function health(port) {
+  const response = await fetch(`http://127.0.0.1:${port}/health`);
+  if (!response.ok) {
+    throw new Error(`health returned ${response.status}`);
+  }
+  return response.json();
+}
+
+async function openEvents(port) {
+  const response = await fetch(`http://127.0.0.1:${port}/events`);
+  assert.equal(response.status, 200);
+  const reader = response.body.getReader();
+  let buffer = '';
+
+  async function nextEvent() {
+    while (true) {
+      const boundary = buffer.indexOf('\n\n');
+      if (boundary !== -1) {
+        const block = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        const eventLine = block.split('\n').find((line) => line.startsWith('event: '));
+        if (!eventLine) {
+          continue;
+        }
+        const dataLine = block.split('\n').find((line) => line.startsWith('data: '));
+        return {
+          type: eventLine.slice('event: '.length),
+          data: dataLine ? JSON.parse(dataLine.slice('data: '.length)) : undefined,
+        };
+      }
+
+      const { done, value } = await reader.read();
+      if (done) {
+        throw new Error('SSE stream ended before the expected event.');
+      }
+      buffer += new TextDecoder().decode(value);
+    }
+  }
+
+  return {
+    close: () => reader.cancel(),
+    nextEvent,
+  };
+}
+
+async function nextEventOfType(stream, expectedType) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const event = await stream.nextEvent();
+    if (event.type === expectedType) {
+      return event;
+    }
+  }
+  throw new Error(`Did not receive SSE event ${expectedType}.`);
+}
+
+function rawMcpMessages() {
+  return [
+    {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'smoke', version: '1.0.0' } },
+    },
+    { jsonrpc: '2.0', method: 'notifications/initialized', params: {} },
+    { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} },
+    {
+      jsonrpc: '2.0',
+      id: 3,
+      method: 'tools/call',
+      params: {
+        name: 'osmosis_report',
+        arguments: {
+          task: 'Step 1 Skeleton',
+          what_i_did: 'Built and verified the HTTP and SSE skeleton with a template lesson.',
+          stack_hints: ['Node.js', 'HTTP', 'SSE'],
+        },
+      },
+    },
+    {
+      jsonrpc: '2.0',
+      id: 4,
+      method: 'tools/call',
+      params: {
+        name: 'osmosis_report',
+        arguments: {
+          task: 'Step 2 MCP',
+          what_i_did: 'Added the MCP reporting tool and verified a second sequential report.',
+          stack_hints: ['JSON-RPC', 'stdio', 'MCP'],
+        },
+      },
+    },
+  ];
+}
+
+function reportMessage(id, task, whatIDid, stackHints = ['Node.js', 'MCP']) {
+  return {
+    jsonrpc: '2.0',
+    id,
+    method: 'tools/call',
+    params: {
+      name: 'osmosis_report',
+      arguments: {
+        task,
+        what_i_did: whatIDid,
+        stack_hints: stackHints,
+      },
+    },
+  };
+}
+
+test('SSE sends an empty snapshot followed by a template card', { timeout: 10_000 }, async (t) => {
+  const cwd = await temporaryProject(t);
+  const port = await reservePort();
+  const runner = startServer({ cwd, port, extraEnv: { OSMOSIS_TEMPLATE_DELAY_MS: '400' } });
+  t.after(() => stopServer(runner));
+
+  await waitFor(() => health(port), 'the HTTP server');
+  const stream = await openEvents(port);
+  t.after(() => stream.close());
+
+  const snapshot = await stream.nextEvent();
+  assert.equal(snapshot.type, 'snapshot');
+  assert.deepEqual(snapshot.data.cards, []);
+
+  const card = await nextEventOfType(stream, 'card');
+  assert.equal(card.data.source.task, 'Step 1 Skeleton');
+  assert.equal(card.data.state.answered, false);
+  assert.equal('correct_index' in card.data, false);
+  assert.equal('explanation' in card.data, false);
+});
+
+test('MCP stdio accepts two sequential reports without corrupting stdout', { timeout: 10_000 }, async (t) => {
+  const cwd = await temporaryProject(t);
+  const port = await reservePort();
+  const runner = startServer({ cwd, port });
+  t.after(() => stopServer(runner));
+
+  await waitFor(() => health(port), 'the HTTP server');
+  const stream = await openEvents(port);
+  t.after(() => stream.close());
+  assert.equal((await stream.nextEvent()).type, 'snapshot');
+
+  runner.child.stdin.write(`${rawMcpMessages().map(JSON.stringify).join('\n')}\n`);
+  await waitFor(() => runner.stdoutLines().length === 4, 'four MCP responses');
+
+  const responses = runner.stdoutLines().map((line) => JSON.parse(line));
+  assert.deepEqual(
+    responses.map((response) => response.id),
+    [1, 2, 3, 4],
+  );
+  assert.equal(responses[0].result.serverInfo.name, 'osmosis');
+  assert.equal(responses[1].result.tools[0].name, 'osmosis_report');
+  assert.equal(
+    responses[1].result.tools[0].description,
+    'Call this immediately after completing each task or milestone, before starting the next. Write what_i_did in English.',
+  );
+  assert.equal(responses[2].result.content[0].text, 'Osmosis recorded this milestone.');
+  assert.equal(responses[3].result.content[0].text, 'Osmosis recorded this milestone.');
+
+  const card = await nextEventOfType(stream, 'card');
+  assert.equal(card.data.source.what_i_did, 'Built and verified the HTTP and SSE skeleton with a template lesson.');
+
+  const reports = await (await fetch(`http://127.0.0.1:${port}/debug/reports`)).json();
+  assert.deepEqual(
+    reports.reports.map((report) => report.task),
+    ['Step 1 Skeleton', 'Step 2 MCP'],
+  );
+
+  await delay(100);
+  assert.equal(runner.stdoutLines().length, 4);
+});
+
+test('an HTTP port loser continues serving MCP and relays its report to the primary', { timeout: 10_000 }, async (t) => {
+  const cwd = await temporaryProject(t);
+  const port = await reservePort();
+  const primary = startServer({ cwd, port });
+  t.after(() => stopServer(primary));
+
+  await waitFor(() => health(port), 'the primary HTTP server');
+  const secondary = startServer({ cwd, port });
+  t.after(() => stopServer(secondary));
+  await waitFor(() => secondary.stderr().includes('HTTP disabled'), 'the port guard');
+
+  secondary.child.stdin.write(
+    `${JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'guard', version: '1.0.0' } },
+    })}\n${JSON.stringify({
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'tools/call',
+      params: {
+        name: 'osmosis_report',
+        arguments: {
+          task: 'Port guard',
+          what_i_did: 'Verified the second server instance remains available over stdio.',
+          stack_hints: ['Node.js', 'MCP'],
+        },
+      },
+    })}\n`,
+  );
+
+  await waitFor(() => secondary.stdoutLines().length === 2, 'MCP responses from the secondary');
+  assert.doesNotThrow(() => secondary.stdoutLines().map((line) => JSON.parse(line)));
+
+  const reports = await waitFor(async () => {
+    const response = await fetch(`http://127.0.0.1:${port}/debug/reports`);
+    const body = await response.json();
+    return body.reports.some((report) => report.task === 'Port guard') ? body : null;
+  }, 'the relayed report on the primary');
+  assert.equal(reports.reports.at(-1).what_i_did, 'Verified the second server instance remains available over stdio.');
+});
+
+test('a correct answer persists cards and user mastery, then survives an SSE reload snapshot', { timeout: 10_000 }, async (t) => {
+  const cwd = await temporaryProject(t);
+  const profileDir = path.join(cwd, 'profile');
+  const port = await reservePort();
+  const runner = startServer({ cwd, port, extraEnv: { OSMOSIS_PROFILE_DIR: profileDir } });
+  t.after(() => stopServer(runner));
+
+  await waitFor(() => health(port), 'the HTTP server');
+  const stream = await openEvents(port);
+  t.after(() => stream.close());
+  assert.equal((await stream.nextEvent()).type, 'snapshot');
+
+  runner.child.stdin.write(`${JSON.stringify(reportMessage(1, 'Answer loop', 'Created a lesson that can be answered and saved.'))}\n`);
+  await waitFor(() => runner.stdoutLines().length === 1, 'the report acknowledgement');
+  const card = (await nextEventOfType(stream, 'card')).data;
+
+  const response = await fetch(`http://127.0.0.1:${port}/answer`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ card_id: card.card_id, chosen_index: 0 }),
+  });
+  assert.equal(response.status, 200);
+  const answer = await response.json();
+  assert.deepEqual(Object.keys(answer).sort(), ['correct', 'explanation', 'strength']);
+  assert.deepEqual(answer, {
+    correct: true,
+    explanation: 'Exactly. A milestone becomes a small, timely lesson so waiting for an agent can become learning time.',
+    strength: 2,
+  });
+
+  const strengthEvent = await nextEventOfType(stream, 'strength');
+  assert.deepEqual(strengthEvent.data, { concept_id: 'feedback-loop', strength: 2 });
+  assert.equal((await nextEventOfType(stream, 'tree')).type, 'tree');
+
+  const profile = JSON.parse(await fs.readFile(path.join(profileDir, 'profile.json'), 'utf8'));
+  assert.equal(profile['feedback-loop'].strength, 2);
+  assert.equal(profile['feedback-loop'].seen, 1);
+  assert.equal(profile['feedback-loop'].correct, 1);
+
+  const cardDocument = JSON.parse(await fs.readFile(path.join(cwd, '.osmosis', 'cards.json'), 'utf8'));
+  assert.equal(cardDocument.cards[0].state.answered, true);
+  assert.equal(cardDocument.cards[0].state.correct, true);
+
+  const reloadStream = await openEvents(port);
+  t.after(() => reloadStream.close());
+  const reloadSnapshot = await reloadStream.nextEvent();
+  const reloadedCard = reloadSnapshot.data.cards.find((item) => item.card_id === card.card_id);
+  assert.equal(reloadedCard.state.answered, true);
+  assert.equal(reloadedCard.state.correct, true);
+  assert.equal(reloadedCard.explanation, answer.explanation);
+  assert.equal('correct_index' in reloadedCard, false);
+});
+
+test('a wrong answer returns only after two other delivered cards in the same session', { timeout: 10_000 }, async (t) => {
+  const cwd = await temporaryProject(t);
+  const port = await reservePort();
+  const runner = startServer({ cwd, port });
+  t.after(() => stopServer(runner));
+
+  await waitFor(() => health(port), 'the HTTP server');
+  const stream = await openEvents(port);
+  t.after(() => stream.close());
+  assert.equal((await stream.nextEvent()).type, 'snapshot');
+
+  runner.child.stdin.write(`${JSON.stringify(reportMessage(1, 'First report', 'Delivered the first report card.'))}\n`);
+  await waitFor(() => runner.stdoutLines().length === 1, 'the first report acknowledgement');
+  const firstCard = (await nextEventOfType(stream, 'card')).data;
+
+  const wrongResponse = await fetch(`http://127.0.0.1:${port}/answer`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ card_id: firstCard.card_id, chosen_index: 1 }),
+  });
+  assert.deepEqual(await wrongResponse.json(), {
+    correct: false,
+    explanation: 'Exactly. A milestone becomes a small, timely lesson so waiting for an agent can become learning time.',
+    strength: 1,
+  });
+
+  runner.child.stdin.write(
+    `${JSON.stringify(reportMessage(2, 'Second report', 'Delivered the first intervening report card.'))}\n${JSON.stringify(reportMessage(3, 'Third report', 'Delivered the second intervening report card.'))}\n`,
+  );
+  await waitFor(() => runner.stdoutLines().length === 3, 'the two later report acknowledgements');
+
+  const firstIntervening = (await nextEventOfType(stream, 'card')).data;
+  const secondIntervening = (await nextEventOfType(stream, 'card')).data;
+  const requeued = (await nextEventOfType(stream, 'card')).data;
+  assert.equal(firstIntervening.source.task, 'Second report');
+  assert.equal(secondIntervening.source.task, 'Third report');
+  assert.equal(requeued.source.task, 'First report');
+  assert.notEqual(requeued.card_id, firstCard.card_id);
+});

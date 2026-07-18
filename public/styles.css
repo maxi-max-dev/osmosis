@@ -1,0 +1,97 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #090d19;
+  color: #eff3ff;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: radial-gradient(circle at 78% 12%, #1a3158 0, transparent 34rem), #090d19;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.7fr);
+  min-height: calc(100vh - 32px);
+}
+
+.tree-panel, .lesson-panel { padding: clamp(24px, 5vw, 68px); }
+
+.tree-panel {
+  border-right: 1px solid #29334b;
+  background: rgba(8, 13, 28, 0.74);
+}
+
+.lesson-panel { max-width: 940px; width: 100%; }
+
+.eyebrow, .card-concept {
+  color: #8caaff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  margin: 0 0 8px;
+  text-transform: uppercase;
+}
+
+h1, h2, h3, p { margin-top: 0; }
+h1 { font-size: clamp(1.65rem, 3vw, 2.4rem); margin-bottom: 12px; }
+h2 { font-size: clamp(1.5rem, 3vw, 2.2rem); margin-bottom: 0; }
+h3 { font-size: 1.13rem; line-height: 1.45; margin: 28px 0 14px; }
+
+.tree-empty, .empty-card span, .step-note { color: #99a7c1; line-height: 1.55; }
+.tree-list { list-style: none; margin: 32px 0 0; padding: 0; }
+.tree-node { border-left: 2px solid #668cff; margin: 12px 0; padding: 8px 12px; }
+
+.lesson-header { align-items: start; display: flex; justify-content: space-between; gap: 24px; }
+.connection { border: 1px solid #3f4c6c; border-radius: 999px; color: #abb8d2; font-size: 0.77rem; padding: 7px 10px; white-space: nowrap; }
+.connection.live { border-color: #3e9874; color: #9de6bd; }
+
+.toast { color: #c9d7ff; min-height: 24px; margin: 28px 0 12px; opacity: 0; transition: opacity 180ms ease; }
+.toast.visible { opacity: 1; }
+
+.lesson-card, .empty-card {
+  background: linear-gradient(145deg, rgba(28, 40, 70, 0.95), rgba(17, 24, 44, 0.95));
+  border: 1px solid #334466;
+  border-radius: 18px;
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.24);
+  padding: clamp(24px, 4vw, 42px);
+}
+
+.source-line { color: #aebbd7; font-size: 0.9rem; line-height: 1.5; }
+.lesson-copy { color: #e5eaff; font-size: 1.02rem; line-height: 1.7; margin-bottom: 0; }
+.answers { display: grid; gap: 10px; }
+.answers button {
+  background: #141f38;
+  border: 1px solid #41537c;
+  border-radius: 10px;
+  color: #cad5ed;
+  cursor: pointer;
+  font: inherit;
+  line-height: 1.4;
+  padding: 14px 16px;
+  text-align: left;
+}
+.answers button:disabled { cursor: default; opacity: 0.74; }
+.answers button.pressed { border-color: #9db7ff; box-shadow: inset 0 0 0 1px #9db7ff; }
+.answers button.selected.correct { border-color: #59be8e; color: #ccffe2; }
+.answers button.selected.incorrect { border-color: #e18a9a; color: #ffd4dc; }
+.answer-feedback { border-left: 3px solid #71809d; margin-top: 20px; padding: 4px 0 4px 14px; }
+.answer-feedback.correct { border-color: #59be8e; }
+.answer-feedback.incorrect { border-color: #e18a9a; }
+.answer-feedback p:last-child { color: #c7d2e9; line-height: 1.55; margin-bottom: 0; }
+.result-label { font-weight: 700; margin-bottom: 6px; }
+.next-lesson { background: #7194ff; border: 0; border-radius: 9px; color: #071020; cursor: pointer; font: inherit; font-weight: 700; margin-top: 20px; padding: 11px 15px; }
+.queue-badge { color: #a9c2ff; font-size: 0.85rem; margin: 20px 0 0; }
+
+.mode-footer { color: #71809d; font-size: 0.76rem; padding: 8px 16px 12px; text-align: right; }
+
+@media (max-width: 720px) {
+  .app-shell { grid-template-columns: 1fr; }
+  .tree-panel { border-bottom: 1px solid #29334b; border-right: 0; }
+  .tree-panel, .lesson-panel { padding: 28px 22px; }
+}

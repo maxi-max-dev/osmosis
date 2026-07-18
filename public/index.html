@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0b1020" />
+    <title>Osmosis — Learn while your agent works</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="tree-panel" aria-labelledby="tree-title">
+        <p class="eyebrow">Your project curriculum</p>
+        <h1 id="tree-title">Skill tree</h1>
+        <p class="tree-empty" id="tree-empty">Your tree will grow from your agent's first report.</p>
+        <ol class="tree-list" id="tree-list" aria-live="polite"></ol>
+      </aside>
+
+      <section class="lesson-panel" aria-labelledby="lesson-title">
+        <header class="lesson-header">
+          <div>
+            <p class="eyebrow">Osmosis</p>
+            <h2 id="lesson-title">Learn while your agent works</h2>
+          </div>
+          <span class="connection" id="connection">Connecting…</span>
+        </header>
+
+        <div class="toast" id="toast" role="status" aria-live="polite"></div>
+        <section class="card-area" id="card-area" aria-live="polite"></section>
+      </section>
+    </main>
+    <footer class="mode-footer" id="mode-footer">live · none</footer>
+    <script src="/app.js"></script>
+  </body>
+</html>

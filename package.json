@@ -1,0 +1,14 @@
+{
+  "name": "osmosis",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A learning companion that turns an AI coding agent's milestones into lessons.",
+  "license": "MIT",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
