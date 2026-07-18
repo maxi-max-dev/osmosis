@@ -4,7 +4,7 @@ Osmosis turns the time you spend waiting for an AI coding agent into short lesso
 
 This is a plain-JavaScript, local-first MCP server and browser UI built for the OpenAI Build Week Education track.
 
-> Build status: Steps 1–3, 5, and 6 are complete and verified. The app has polished UI, none-provider recording/replay, a static public replay page, and cross-project mastery proof. GPT-5.6 generation remains gated on API billing and an API key.
+> Build status: Steps 1–3, 5, and 6 are complete and verified. Step 4 now has a provider-neutral curriculum pipeline plus a local Codex generator. The OpenAI API backend remains gated on API billing and an API key.
 
 ## Requirements and local run
 
@@ -16,7 +16,17 @@ cd /Users/max/code/osmosis
 npm start
 ```
 
-Open <http://localhost:4321>. The default provider is `none`, so it needs no API key and uses a local template lesson. In this temporary provider mode, Osmosis intentionally does not infer or grow a project tree; live GPT card and tree generation belongs to the gated Step 4 provider.
+Open <http://localhost:4321>. The default provider is `none`, so it needs no API key and uses a local template lesson. In this temporary provider mode, Osmosis intentionally does not infer or grow a project tree; live curriculum card and tree generation belongs to the Step 4 providers.
+
+## Use the local Codex provider
+
+When the Codex CLI is installed and authenticated locally, use its read-only generator without an OpenAI API key:
+
+```bash
+OSMOSIS_PROVIDER=codex npm start
+```
+
+For the first report, Osmosis runs Codex once to build the initial 12–14-node project tree and once to make the first card. Later reports make one card at a time. Each call runs `codex exec --skip-git-repo-check --sandbox read-only` with a 60-second timeout, receives strict JSON, and retries once silently before skipping a failed lesson. This provider is intentionally slower; the page shows `Generating (this provider is slower).` while it works. It uses the locally signed-in Codex account/credits, not `OPENAI_API_KEY`.
 
 ## Start Codex with Osmosis
 
@@ -52,12 +62,16 @@ Use one report per completed milestone. Every field is English. Do not batch mil
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `OSMOSIS_PROVIDER` | `none` | `none` is implemented now. `openai` and `codex` are Step 4-gated; start with `none` until billing is enabled. |
-| `OSMOSIS_MODE` | `live` | `live` creates template lessons; `record` saves report-driven cards; `replay` consumes a local replay fixture in order. |
+| `OSMOSIS_PROVIDER` | `none` | `none` is the default template mode. `codex` is implemented with the local read-only Codex CLI. `openai` keeps the same interface but awaits API billing/key activation. |
+| `OSMOSIS_MODE` | `live` | `live` runs the selected provider; `record` saves report-driven cards; `replay` consumes a local replay fixture in order. |
 | `OSMOSIS_PORT` | `4321` | Local HTTP/SSE port. Set `0` only when an isolated test needs an OS-assigned free port. |
 | `OSMOSIS_HOST` | `127.0.0.1` | Local bind address. |
 | `OSMOSIS_PROFILE_DIR` | `~/.osmosis` | User-level mastery directory. Point this at an isolated directory for demos/tests, or share it to prove cross-project mastery. |
 | `OSMOSIS_TEMPLATE_DELAY_MS` | `900` | Delay before the local `none` starter lesson; useful for development and tests. |
+| `OSMOSIS_CARD_PACING_MS` | `12000` | Minimum spacing between delivered live curriculum cards after the first card. |
+| `OSMOSIS_UNANSWERED_CARD_CAP` | `5` | Maximum unanswered live curriculum cards before generation pauses and marks the direct concept as surfaced. |
+| `OSMOSIS_CODEX_COMMAND` | `codex` | Local Codex executable used by the `codex` provider. |
+| `OSMOSIS_CODEX_TIMEOUT_MS` | `60000` | Per-attempt timeout for a `codex exec` generation call. |
 | `OPENAI_API_KEY` | unset | Required only by the future `openai` provider; never commit it. |
 
 Local data stays local: `~/.osmosis/profile.json` holds user-level mastery; the target project's `.osmosis/tree.json`, `cards.json`, and `replay.json` hold project-level state. They are private/ignored. Only the sanitized replay fixture in this repository is intended to ship.
@@ -82,7 +96,8 @@ The suite verifies all completed P0 behavior:
 - an incorrect answer waits for two other delivered cards before it reappears;
 - record mode excludes starter cards and wrong-answer requeues from `.osmosis/replay.json`;
 - replay mode uses real reports to emit sanitized recorded cards in order, then finishes calmly when exhausted;
-- two distinct project directories sharing one profile prove mastery carry-over: project B shows gold `carried over` state and skips a mastered none-provider concept.
+- two distinct project directories sharing one profile prove mastery carry-over: project B shows gold `carried over` state and skips a mastered none-provider concept;
+- the Codex provider starts without a template starter, builds the first validated tree, returns a source-linked strict-schema card, and keeps Codex stdout out of the MCP protocol.
 
 For a quick manual SSE check:
 
@@ -143,8 +158,12 @@ The included [sanitized-none-replay.json](fixtures/sanitized-none-replay.json) i
 
 The [static replay page](docs/index.html) is a single deployable file in `docs/`: no API key, local server, or live agent is required. Configure GitHub Pages to deploy the `/docs` directory for a judge-facing URL. Its banner accurately identifies the current fixture as a sanitized `none`-provider recording. No public judge URL is claimed until a remote repository and GitHub Pages deployment exist.
 
+## Known limitation
+
+Run one Osmosis-enabled project at a time. Concurrent projects can relay reports to the same localhost HTTP owner and mix project state; this version does not isolate them.
+
 ## How Osmosis was built
 
-Codex built all current product code in one primary thread. When the API billing gate is cleared, the live stage will use GPT-5.6 Structured Outputs for card and tree generation. The known limitation is intentional for the hackathon: the local server lives and dies with the Codex session.
+Codex built all current product code in one primary thread. The current `codex` provider uses local read-only `codex exec` for strict card and tree generation; when the API billing gate is cleared, the `openai` backend will use GPT-5.6 Structured Outputs through the same curriculum interface. The known limitation is intentional for the hackathon: the local server lives and dies with the Codex session.
 
 The MCP is agent-agnostic even though the demo uses Codex.

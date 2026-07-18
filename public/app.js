@@ -214,6 +214,26 @@
     toastTimer = window.setTimeout(() => toast.classList.remove('visible'), 3_000);
   }
 
+  function updateConnectionStatus(status) {
+    const provider = status.provider || state.provider;
+    if (provider === 'codex' && status.state === 'generating') {
+      connection.textContent = 'Generating (this provider is slower).';
+      connection.classList.add('live');
+      return;
+    }
+
+    if (status.state === 'pacing') {
+      connection.textContent = 'Spacing lessons…';
+      connection.classList.add('live');
+      return;
+    }
+
+    if (['idle', 'skipped', 'queue-full', 'replay-complete'].includes(status.state)) {
+      connection.textContent = 'Live';
+      connection.classList.add('live');
+    }
+  }
+
   function applySnapshot(snapshot) {
     state.cards = Array.isArray(snapshot.cards) ? snapshot.cards : [];
     state.tree = snapshot.tree || { meta: {}, nodes: [] };
@@ -320,6 +340,7 @@
   });
   events.addEventListener('status', (event) => {
     const status = JSON.parse(event.data);
+    updateConnectionStatus(status);
     if (status.report?.what_i_did) {
       showToast(`Codex reported: "${status.report.what_i_did}"`);
     }

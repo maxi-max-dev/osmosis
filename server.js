@@ -6,6 +6,7 @@ const http = require('node:http');
 const { getConfig } = require('./lib/config');
 const { createTemplateCard } = require('./lib/card-factory');
 const { createCardService } = require('./lib/card-service');
+const { createCurriculumService } = require('./lib/curriculum-service');
 const { createAnswerService } = require('./lib/answer-service');
 const { createHttpHandler } = require('./lib/http');
 const { log } = require('./lib/log');
@@ -15,6 +16,7 @@ const { createReportPipeline } = require('./lib/report-pipeline');
 const { createReplayService } = require('./lib/replay');
 const { SseHub } = require('./lib/sse');
 const { createPersistence, loadProjectState, snapshotFor } = require('./lib/state');
+const { createTreeService } = require('./lib/tree-service');
 
 async function listen(server, port, host) {
   return new Promise((resolve, reject) => {
@@ -58,7 +60,17 @@ async function main() {
   const cardService = createCardService({ state, hub, persistence });
   const provider = createProvider(config);
   const replayService = await createReplayService({ config, persistence, state });
-  const reportPipeline = createReportPipeline({ cardService, config, hub, provider, replayService, state });
+  const treeService = createTreeService({ hub, persistence, provider, state });
+  const curriculumService = createCurriculumService({ config, hub, provider, state, treeService });
+  const reportPipeline = createReportPipeline({
+    cardService,
+    config,
+    curriculumService,
+    hub,
+    provider,
+    replayService,
+    state,
+  });
   const answerService = createAnswerService({ state, hub, persistence, cardService });
   let reportDelivery = 'starting';
   const queuedStartupReports = [];
@@ -109,7 +121,7 @@ async function main() {
     acceptMcpReport(report);
   }
 
-  const starterTimer = httpEnabled && config.mode === 'live'
+  const starterTimer = httpEnabled && config.mode === 'live' && provider.name === 'none'
     ? setTimeout(() => {
         void pushStarterCard();
       }, config.templateDelayMs)
@@ -130,6 +142,7 @@ async function main() {
     if (starterTimer) {
       clearTimeout(starterTimer);
     }
+    provider.close?.();
     hub.close();
     if (httpEnabled) {
       server.close(() => process.exit(0));

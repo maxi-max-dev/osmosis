@@ -308,6 +308,54 @@ function reportMessage(id, task, whatIDid, stackHints = ['Node.js', 'MCP']) {
   };
 }
 
+function codexTreeNodes() {
+  return [
+    { concept_id: 'project', concept_name: 'Your project', parent_id: null },
+    { concept_id: 'interface', concept_name: 'The interface', parent_id: 'project' },
+    { concept_id: 'data', concept_name: 'Data flow', parent_id: 'project' },
+    { concept_id: 'automation', concept_name: 'Automation', parent_id: 'project' },
+    { concept_id: 'html', concept_name: 'HTML structure', parent_id: 'interface' },
+    { concept_id: 'css', concept_name: 'CSS styling', parent_id: 'interface' },
+    { concept_id: 'dom', concept_name: 'The document tree', parent_id: 'interface' },
+    { concept_id: 'http', concept_name: 'HTTP', parent_id: 'data' },
+    { concept_id: 'json', concept_name: 'JSON data', parent_id: 'data' },
+    { concept_id: 'state', concept_name: 'App state', parent_id: 'data' },
+    { concept_id: 'mcp', concept_name: 'MCP reporting', parent_id: 'automation' },
+    { concept_id: 'tests', concept_name: 'Automated tests', parent_id: 'automation' },
+    { concept_id: 'deploy', concept_name: 'Deployment', parent_id: 'automation' },
+  ];
+}
+
+async function writeCodexShim(directory) {
+  const shimPath = path.join(directory, 'fake-codex.js');
+  const tree = JSON.stringify({ nodes: codexTreeNodes() });
+  const card = JSON.stringify({
+    concept_id: 'http',
+    concept_name: 'HTTP',
+    lesson: 'HTTP carries a request from your app to a server and brings a response back, like a labeled envelope travelling between two places.',
+    question: 'What does HTTP help your app do?',
+    options: ['Send a request and receive a response.', 'Draw every screen pixel.', 'Store passwords in a browser tab.'],
+    correct_index: 0,
+    explanation: 'HTTP carries a request to a server and brings a response back.',
+  });
+  await fs.writeFile(
+    shimPath,
+    `#!/usr/bin/env node\n'use strict';\nconst fs = require('node:fs');\nconst args = process.argv.slice(2);\nconst outputPath = args[args.indexOf('--output-last-message') + 1];\nconst schemaPath = args[args.indexOf('--output-schema') + 1];\nconst result = schemaPath.endsWith('tree-output.schema.json') ? ${JSON.stringify(tree)} : ${JSON.stringify(card)};\nfs.writeFileSync(outputPath, result);\nprocess.stdout.write(result);\n`,
+    { mode: 0o755 },
+  );
+  return shimPath;
+}
+
+async function writeFailingCodexShim(directory) {
+  const shimPath = path.join(directory, 'failing-codex.js');
+  await fs.writeFile(
+    shimPath,
+    "#!/usr/bin/env node\n'use strict';\nprocess.stderr.write('intentional test failure');\nprocess.exit(1);\n",
+    { mode: 0o755 },
+  );
+  return shimPath;
+}
+
 test('SSE sends an empty snapshot followed by a template card', { timeout: 10_000 }, async (t) => {
   const cleanup = createTestCleanup(t);
   const cwd = await temporaryProject(cleanup);
@@ -601,6 +649,57 @@ test('replay mode emits recorded concepts in order for real reports and stops cl
   assert.equal(complete.data.message, 'Replay has no more recorded lessons.');
   const cards = JSON.parse(await fs.readFile(path.join(cwd, '.osmosis', 'cards.json'), 'utf8'));
   assert.equal(cards.cards.length, 2);
+});
+
+test('the Codex provider builds a first tree and source-linked card without a template starter', { timeout: 10_000 }, async (t) => {
+  const cleanup = createTestCleanup(t);
+  const cwd = await temporaryProject(cleanup);
+  const codexCommand = await writeCodexShim(cwd);
+  const { runner, port } = await startHttpServer(cleanup, {
+    cwd,
+    extraEnv: {
+      OSMOSIS_CARD_PACING_MS: '0',
+      OSMOSIS_CODEX_COMMAND: codexCommand,
+      OSMOSIS_PROVIDER: 'codex',
+      OSMOSIS_TEMPLATE_DELAY_MS: '150',
+    },
+  });
+  const stream = await openTrackedEvents(cleanup, port);
+  assert.deepEqual((await stream.nextEvent()).data.cards, []);
+  await delay(250);
+  await assert.rejects(fs.readFile(path.join(cwd, '.osmosis', 'cards.json'), 'utf8'), { code: 'ENOENT' });
+
+  runner.child.stdin.write(`${JSON.stringify(reportMessage(1, 'HTTP route', 'Added an HTTP route for the app.', ['HTTP']))}\n`);
+  await waitFor(() => runner.stdoutLines().length === 1, 'the Codex report acknowledgement');
+  const generating = await nextEventOfType(stream, 'status');
+  assert.equal(generating.data.message, 'Generating (this provider is slower).');
+  assert.equal(generating.data.provider, 'codex');
+  const tree = await nextEventOfType(stream, 'tree');
+  assert.equal(tree.data.nodes.length, 13);
+  const card = await nextEventOfType(stream, 'card');
+  assert.equal(card.data.concept_id, 'http');
+  assert.equal(card.data.source.what_i_did, 'Added an HTTP route for the app.');
+  assert.equal(runner.stdoutLines().length, 1);
+});
+
+test('a failed Codex generation retries then returns to idle without crashing the MCP server', { timeout: 10_000 }, async (t) => {
+  const cleanup = createTestCleanup(t);
+  const cwd = await temporaryProject(cleanup);
+  const codexCommand = await writeFailingCodexShim(cwd);
+  const { runner, port } = await startHttpServer(cleanup, {
+    cwd,
+    extraEnv: { OSMOSIS_CODEX_COMMAND: codexCommand, OSMOSIS_PROVIDER: 'codex' },
+  });
+  const stream = await openTrackedEvents(cleanup, port);
+  await stream.nextEvent();
+
+  runner.child.stdin.write(`${JSON.stringify(reportMessage(1, 'Failed generation', 'Tried a guarded Codex lesson generation.', ['Codex']))}\n`);
+  await waitFor(() => runner.stdoutLines().length === 1, 'the failed-generation acknowledgement');
+  assert.equal((await nextEventOfType(stream, 'status')).data.state, 'generating');
+  const idle = await nextEventMatching(stream, (event) => event.type === 'status' && event.data.state === 'idle', 'a calm idle status');
+  assert.equal(idle.data.message, 'Osmosis will wait for the next milestone.');
+  assert.equal((await health(port)).provider, 'codex');
+  assert.equal(runner.stdoutLines().length, 1);
 });
 
 test('a mastered none-provider concept carries across projects without generating another card', { timeout: 15_000 }, async (t) => {
