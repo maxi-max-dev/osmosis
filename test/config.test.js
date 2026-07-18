@@ -74,11 +74,13 @@ test('Ambient Watch derives its default session directory from CODEX_HOME', asyn
     cwd: path.join('/tmp', 'osmosis-project'),
     env: { CODEX_HOME: codexHome, OSMOSIS_AMBIENT: '1', OSMOSIS_PORT_RETRY_MS: '15001' },
   });
+  assert.equal(configured.codexHome, codexHome);
   assert.equal(configured.sessionsDir, sessionsDir);
   assert.equal(configured.ambientEnabled, true);
   assert.equal(configured.portRetryMs, 15001);
 
   const fallback = getConfig({ cwd: path.join('/tmp', 'osmosis-project'), env: {} });
+  assert.equal(fallback.codexHome, path.join(os.homedir(), '.codex'));
   assert.equal(fallback.sessionsDir, path.join(os.homedir(), '.codex', 'sessions'));
   assert.equal(fallback.portRetryMs, 15_000);
 });

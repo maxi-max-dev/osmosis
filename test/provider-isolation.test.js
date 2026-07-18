@@ -21,27 +21,69 @@ function cardJson() {
   };
 }
 
+function fakeCodexScript() {
+  return `#!/usr/bin/env node
+'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
+const args = process.argv.slice(2);
+const outputPath = args[args.indexOf('--output-last-message') + 1];
+
+function inspect(filename) {
+  const filePath = path.join(process.env.CODEX_HOME, filename);
+  const exists = fs.existsSync(filePath);
+  return {
+    exists,
+    content: exists ? fs.readFileSync(filePath, 'utf8') : null,
+    isSymbolicLink: exists ? fs.lstatSync(filePath).isSymbolicLink() : false,
+  };
+}
+
+let finished = false;
+function finish(stdinState) {
+  if (finished) return;
+  finished = true;
+  clearTimeout(stdinTimer);
+  const files = {
+    auth: inspect('auth.json'),
+    config: inspect('config.toml'),
+  };
+  for (const filename of ['auth.json', 'config.toml']) {
+    const filePath = path.join(process.env.CODEX_HOME, filename);
+    if (fs.existsSync(filePath)) fs.appendFileSync(filePath, '\\nchild-write');
+  }
+  fs.writeFileSync(process.env.OSMOSIS_PROVIDER_CAPTURE_PATH, JSON.stringify({
+    codexHome: process.env.CODEX_HOME,
+    codexHomeExists: fs.existsSync(process.env.CODEX_HOME),
+    files,
+    marker: process.env.${AMBIENT_IGNORE_ENV},
+    stdinState,
+  }));
+  fs.writeFileSync(outputPath, ${JSON.stringify(JSON.stringify(cardJson()))});
+}
+
+const stdinTimer = setTimeout(() => finish('timed-out'), 250);
+stdinTimer.unref();
+process.stdin.once('error', () => finish('error'));
+process.stdin.once('end', () => finish('ended'));
+process.stdin.resume();
+`;
+}
+
 test('the Codex generator receives a fresh isolated CODEX_HOME and ambient-ignore marker', async (t) => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'osmosis-provider-isolation-'));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   const commandPath = path.join(directory, 'fake-codex.js');
   const capturePath = path.join(directory, 'child-environment.json');
-  await fs.writeFile(
-    commandPath,
-    `#!/usr/bin/env node
-'use strict';
-const fs = require('node:fs');
-const args = process.argv.slice(2);
-const outputPath = args[args.indexOf('--output-last-message') + 1];
-fs.writeFileSync(process.env.OSMOSIS_PROVIDER_CAPTURE_PATH, JSON.stringify({
-  codexHome: process.env.CODEX_HOME,
-  codexHomeExists: fs.existsSync(process.env.CODEX_HOME),
-  marker: process.env.${AMBIENT_IGNORE_ENV},
-}));
-fs.writeFileSync(outputPath, ${JSON.stringify(JSON.stringify(cardJson()))});
-`,
-    { mode: 0o755 },
-  );
+  const realCodexHome = path.join(directory, 'real-codex-home');
+  const authContents = '{"token":"test-only"}\n';
+  const configContents = 'model = "test-model"\n';
+  await fs.mkdir(realCodexHome);
+  await Promise.all([
+    fs.writeFile(path.join(realCodexHome, 'auth.json'), authContents),
+    fs.writeFile(path.join(realCodexHome, 'config.toml'), configContents),
+    fs.writeFile(commandPath, fakeCodexScript(), { mode: 0o755 }),
+  ]);
 
   const previousCapturePath = process.env.OSMOSIS_PROVIDER_CAPTURE_PATH;
   process.env.OSMOSIS_PROVIDER_CAPTURE_PATH = capturePath;
@@ -54,6 +96,7 @@ fs.writeFileSync(outputPath, ${JSON.stringify(JSON.stringify(cardJson()))});
   });
 
   const provider = createProvider({
+    codexHome: realCodexHome,
     codexCommand: commandPath,
     codexTimeoutMs: 5_000,
     cwd: directory,
@@ -70,8 +113,56 @@ fs.writeFileSync(outputPath, ${JSON.stringify(JSON.stringify(cardJson()))});
   assert.equal(card.concept_id, 'http');
   assert.equal(captured.codexHomeExists, true);
   assert.equal(captured.marker, '1');
+  assert.equal(captured.stdinState, 'ended');
+  assert.deepEqual(captured.files.auth, { exists: true, content: authContents, isSymbolicLink: false });
+  assert.deepEqual(captured.files.config, { exists: true, content: configContents, isSymbolicLink: false });
   assert.notEqual(captured.codexHome, process.env.CODEX_HOME);
+  assert.notEqual(captured.codexHome, realCodexHome);
   assert.match(captured.codexHome, /osmosis-codex-.+codex-home$/);
+  assert.equal(await fs.readFile(path.join(realCodexHome, 'auth.json'), 'utf8'), authContents);
+  assert.equal(await fs.readFile(path.join(realCodexHome, 'config.toml'), 'utf8'), configContents);
+  await assert.rejects(fs.access(captured.codexHome), { code: 'ENOENT' });
+});
+
+test('the isolated Codex home leaves absent auth and config files absent', async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'osmosis-provider-empty-home-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const commandPath = path.join(directory, 'fake-codex.js');
+  const capturePath = path.join(directory, 'child-environment.json');
+  const emptyRealCodexHome = path.join(directory, 'empty-real-codex-home');
+  await fs.mkdir(emptyRealCodexHome);
+  await fs.writeFile(commandPath, fakeCodexScript(), { mode: 0o755 });
+
+  const previousCapturePath = process.env.OSMOSIS_PROVIDER_CAPTURE_PATH;
+  process.env.OSMOSIS_PROVIDER_CAPTURE_PATH = capturePath;
+  t.after(() => {
+    if (previousCapturePath === undefined) {
+      delete process.env.OSMOSIS_PROVIDER_CAPTURE_PATH;
+    } else {
+      process.env.OSMOSIS_PROVIDER_CAPTURE_PATH = previousCapturePath;
+    }
+  });
+
+  const provider = createProvider({
+    codexHome: emptyRealCodexHome,
+    codexCommand: commandPath,
+    codexTimeoutMs: 5_000,
+    cwd: directory,
+    provider: 'codex',
+  });
+  const card = await provider.generateCard({
+    concepts: [{ concept_id: 'http', concept_name: 'HTTP', parent_id: 'data' }],
+    masteredConceptIds: [],
+    report: { task: 'Observed work', what_i_did: 'Observed HTTP.', stack_hints: ['HTTP'], source: 'observed' },
+  });
+  provider.close();
+
+  const captured = JSON.parse(await fs.readFile(capturePath, 'utf8'));
+  assert.equal(card.concept_id, 'http');
+  assert.equal(captured.codexHomeExists, true);
+  assert.equal(captured.stdinState, 'ended');
+  assert.deepEqual(captured.files.auth, { exists: false, content: null, isSymbolicLink: false });
+  assert.deepEqual(captured.files.config, { exists: false, content: null, isSymbolicLink: false });
   await assert.rejects(fs.access(captured.codexHome), { code: 'ENOENT' });
 });
 
@@ -156,6 +247,7 @@ fs.writeFileSync(outputPath, ${JSON.stringify(JSON.stringify(cardJson()))});
   });
 
   const provider = createProvider({
+    codexHome: watchedCodexHome,
     codexCommand: commandPath,
     codexTimeoutMs: 5_000,
     cwd: projectDir,
