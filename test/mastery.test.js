@@ -61,10 +61,16 @@ function createHarness({ cards, strengths }) {
   return { answerService, cardService, events, savedCards, savedProfiles, state };
 }
 
-test('runtime cards retain observed provenance and default older reports to agent provenance', () => {
-  const observed = createRuntimeCard(generatedCard('ambient-watch', 'Ambient Watch'), {
+test('runtime cards retain patch/activity provenance and default older reports to agent provenance', () => {
+  const observedChange = createRuntimeCard(generatedCard('ambient-watch', 'Ambient Watch'), {
     task: 'Observed local change',
     what_i_did: 'Changed a Three.js scene file.',
+    source: 'observed',
+    observed_kind: 'change',
+  });
+  const observedActivity = createRuntimeCard(generatedCard('terminal', 'Terminal'), {
+    task: 'Observed local activity',
+    what_i_did: 'Ran node.',
     source: 'observed',
   });
   const agent = createRuntimeCard(generatedCard('mcp', 'MCP'), {
@@ -72,10 +78,15 @@ test('runtime cards retain observed provenance and default older reports to agen
     what_i_did: 'Connected the report tool.',
   });
 
-  assert.deepEqual(observed.source, {
+  assert.deepEqual(observedChange.source, {
     task: 'Observed local change',
     what_i_did: 'Changed a Three.js scene file.',
-    kind: 'observed',
+    kind: 'observed-change',
+  });
+  assert.deepEqual(observedActivity.source, {
+    task: 'Observed local activity',
+    what_i_did: 'Ran node.',
+    kind: 'observed-activity',
   });
   assert.deepEqual(agent.source, {
     task: 'Reported milestone',

@@ -40,26 +40,44 @@
   }
 
   function sourceText(card) {
-    if (card.source?.what_i_did) {
-      return card.source.what_i_did;
+    if (sourceKind(card) === 'observed-change') {
+      return 'Osmosis observed a local Codex change.';
     }
-    return sourceKind(card) === 'observed'
-      ? 'Osmosis observed a local Codex change.'
-      : 'Your agent reported a milestone.';
+    if (sourceKind(card) === 'observed-activity') {
+      return 'Osmosis observed local Codex activity.';
+    }
+    return card.source?.what_i_did || 'Your agent reported a milestone.';
   }
 
   function sourceKind(card) {
-    return card.source?.kind === 'observed' ? 'observed' : 'agent';
+    if (card.source?.kind === 'observed-change') {
+      return 'observed-change';
+    }
+    if (card.source?.kind === 'observed-activity' || card.source?.kind === 'observed') {
+      // Legacy observed cards were not precise enough to prove a patch succeeded.
+      return 'observed-activity';
+    }
+    return 'agent';
   }
 
   function sourceLabel(card) {
-    return sourceKind(card) === 'observed' ? 'Observed change' : 'Reported by agent';
+    if (sourceKind(card) === 'observed-change') {
+      return 'Observed change';
+    }
+    if (sourceKind(card) === 'observed-activity') {
+      return 'Observed activity';
+    }
+    return 'Reported by agent';
   }
 
   function sourceLead(card) {
-    return sourceKind(card) === 'observed'
-      ? 'From local Codex activity:'
-      : 'From what your AI just did:';
+    if (sourceKind(card) === 'observed-change') {
+      return 'From a local Codex change:';
+    }
+    if (sourceKind(card) === 'observed-activity') {
+      return 'From local Codex activity:';
+    }
+    return 'From what your AI just did:';
   }
 
   function cardSummary(card) {
@@ -367,8 +385,16 @@
     const status = JSON.parse(event.data);
     updateConnectionStatus(status);
     if (status.report?.what_i_did) {
-      const observed = status.report.source === 'observed' || status.report.source?.kind === 'observed';
-      showToast(`${observed ? 'Osmosis observed' : 'Codex reported'}: "${status.report.what_i_did}"`);
+      const observed =
+        status.report.source === 'observed' ||
+        ['observed', 'observed-change', 'observed-activity'].includes(status.report.source?.kind);
+      if (observed) {
+        const observedChange =
+          status.report.observed_kind === 'change' || status.report.source?.kind === 'observed-change';
+        showToast(observedChange ? 'Osmosis observed a local change.' : 'Osmosis observed local activity.');
+      } else {
+        showToast(`Codex reported: "${status.report.what_i_did}"`);
+      }
     }
   });
 

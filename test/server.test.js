@@ -53,6 +53,9 @@ function startServer({ cwd, port, extraEnv = {} }) {
       // Keep real local Codex sessions out of unrelated HTTP/MCP tests. Tests
       // that exercise Ambient Watch opt in with an isolated sessions directory.
       OSMOSIS_AMBIENT: '0',
+      // Production keeps the 12s global learning pace. Server integration
+      // tests override it to 1ms unless a test explicitly exercises pacing.
+      OSMOSIS_CARD_PACING_MS: '1',
       OSMOSIS_TEMPLATE_DELAY_MS: '10000',
       OSMOSIS_PROFILE_DIR: path.join(cwd, '.test-profile'),
       ...extraEnv,
@@ -506,6 +509,135 @@ test('an HTTP port loser continues serving MCP and relays its report to the prim
   assert.equal(reports.reports.at(-1).source, 'agent');
 });
 
+test('a port loser takes over the local pipeline and watcher after the owner exits', { timeout: 15_000 }, async (t) => {
+  const cleanup = createTestCleanup(t);
+  const primaryCwd = await temporaryProject(cleanup);
+  const secondaryCwd = await temporaryProject(cleanup);
+  const sessionsDir = await temporaryProject(cleanup);
+  const now = new Date();
+  const rolloutDirectory = path.join(
+    sessionsDir,
+    String(now.getFullYear()),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+  );
+  const rolloutPath = path.join(rolloutDirectory, 'rollout-takeover.jsonl');
+  await fs.mkdir(rolloutDirectory, { recursive: true });
+  await fs.writeFile(rolloutPath, '');
+  const { runner: primary, port } = await startHttpServer(cleanup, {
+    cwd: primaryCwd,
+    extraEnv: {
+      OSMOSIS_AMBIENT: '1',
+      OSMOSIS_PORT_RETRY_MS: '50',
+      OSMOSIS_SESSIONS_DIR: sessionsDir,
+      OSMOSIS_TEMPLATE_DELAY_MS: '60000',
+    },
+  });
+  const secondary = startTrackedServer(cleanup, {
+    cwd: secondaryCwd,
+    port,
+    extraEnv: {
+      OSMOSIS_AMBIENT: '1',
+      OSMOSIS_PORT_RETRY_MS: '50',
+      OSMOSIS_SESSIONS_DIR: sessionsDir,
+      OSMOSIS_TEMPLATE_DELAY_MS: '60000',
+    },
+  });
+  await waitFor(() => secondary.stderr().includes('HTTP disabled'), 'the retrying port loser');
+
+  await stopServer(primary);
+  await waitFor(() => listeningPort(secondary) === port, 'the retry-path HTTP takeover');
+  await waitFor(() => health(port), 'the takeover HTTP server');
+
+  secondary.child.stdin.write(
+    `${JSON.stringify(reportMessage(1, 'Takeover report', 'Accepted a report through the newly owned local pipeline.'))}\n`,
+  );
+  await waitFor(() => secondary.stdoutLines().length === 1, 'the takeover MCP acknowledgement');
+  const reports = await waitFor(async () => {
+    const response = await fetch(`http://127.0.0.1:${port}/debug/reports`);
+    const body = await response.json();
+    return body.reports.some((report) => report.task === 'Takeover report') ? body : null;
+  }, 'the locally delivered takeover report');
+  assert.equal(reports.reports.at(-1).source, 'agent');
+
+  // The observer starts only after the delivery mode changes to local. Give
+  // its EOF baseline a moment, then append a new event for the new owner.
+  await delay(150);
+  await fs.appendFile(
+    rolloutPath,
+    `${JSON.stringify({
+      type: 'response_item',
+      payload: {
+        type: 'custom_tool_call',
+        name: 'exec',
+        input: JSON.stringify({ cmd: 'node takeover.js', workdir: secondaryCwd }),
+      },
+    })}\n`,
+  );
+  const observedReports = await waitFor(async () => {
+    const response = await fetch(`http://127.0.0.1:${port}/debug/reports`);
+    const body = await response.json();
+    return body.reports.some((report) => report.source === 'observed') ? body : null;
+  }, 'the takeover Ambient Watch report');
+  assert.equal(observedReports.reports.at(-1).source, 'observed');
+});
+
+test('a same-project port takeover reloads cards and mastery before writing again', { timeout: 12_000 }, async (t) => {
+  const cleanup = createTestCleanup(t);
+  const cwd = await temporaryProject(cleanup);
+  const { runner: primary, port } = await startHttpServer(cleanup, {
+    cwd,
+    extraEnv: { OSMOSIS_PORT_RETRY_MS: '50', OSMOSIS_TEMPLATE_DELAY_MS: '60000' },
+  });
+  const primaryStream = await openTrackedEvents(cleanup, port);
+  await primaryStream.nextEvent();
+  primary.child.stdin.write(
+    `${JSON.stringify(reportMessage(1, 'Before takeover', 'Delivered a lesson before the port owner exited.'))}\n`,
+  );
+  await waitFor(() => primary.stdoutLines().length === 1, 'the pre-takeover acknowledgement');
+  const firstCard = (await nextEventOfType(primaryStream, 'card')).data;
+  const firstAnswer = await fetch(`http://127.0.0.1:${port}/answer`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ card_id: firstCard.card_id, chosen_index: 1 }),
+  });
+  assert.equal((await firstAnswer.json()).strength, 1);
+
+  const secondary = startTrackedServer(cleanup, {
+    cwd,
+    port,
+    extraEnv: { OSMOSIS_PORT_RETRY_MS: '50', OSMOSIS_TEMPLATE_DELAY_MS: '60000' },
+  });
+  await waitFor(() => secondary.stderr().includes('HTTP disabled'), 'the same-project port guard');
+  await stopServer(primary);
+  await waitFor(() => listeningPort(secondary) === port, 'the same-project retry takeover');
+  await waitFor(() => health(port), 'the same-project takeover HTTP server');
+
+  const takeoverStream = await openTrackedEvents(cleanup, port);
+  const snapshot = await takeoverStream.nextEvent();
+  assert.equal(snapshot.data.cards.length, 1);
+  assert.equal(snapshot.data.cards[0].state.answered, true);
+  assert.equal(snapshot.data.strengths['feedback-loop'].strength, 1);
+
+  secondary.child.stdin.write(
+    `${JSON.stringify(reportMessage(1, 'After takeover', 'Delivered another lesson from the new local owner.'))}\n`,
+  );
+  await waitFor(() => secondary.stdoutLines().length === 1, 'the post-takeover acknowledgement');
+  const secondCard = (await nextEventOfType(takeoverStream, 'card')).data;
+  const secondAnswer = await fetch(`http://127.0.0.1:${port}/answer`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ card_id: secondCard.card_id, chosen_index: 0 }),
+  });
+  assert.equal((await secondAnswer.json()).strength, 2);
+
+  const cards = JSON.parse(await fs.readFile(path.join(cwd, '.osmosis', 'cards.json'), 'utf8'));
+  const profile = JSON.parse(await fs.readFile(path.join(cwd, '.test-profile', 'profile.json'), 'utf8'));
+  assert.equal(cards.cards.length, 2);
+  assert.equal(profile['feedback-loop'].strength, 2);
+  assert.equal(profile['feedback-loop'].seen, 2);
+});
+
 test('Ambient Watch runs only in the HTTP-owning server instance', { timeout: 12_000 }, async (t) => {
   const cleanup = createTestCleanup(t);
   const primaryCwd = await temporaryProject(cleanup);
@@ -567,6 +699,54 @@ test('Ambient Watch runs only in the HTTP-owning server instance', { timeout: 12
   await delay(2_200);
   const loserCards = await fs.readFile(path.join(secondaryCwd, '.osmosis', 'cards.json'), 'utf8').catch(() => null);
   assert.equal(loserCards, null);
+});
+
+test('record mode leaves Ambient Watch fully disabled even when explicitly opted in', { timeout: 8_000 }, async (t) => {
+  const cleanup = createTestCleanup(t);
+  const cwd = await temporaryProject(cleanup);
+  const sessionsDir = await temporaryProject(cleanup);
+  const now = new Date();
+  const rolloutDirectory = path.join(
+    sessionsDir,
+    String(now.getFullYear()),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+  );
+  const rolloutPath = path.join(rolloutDirectory, 'rollout-record-mode.jsonl');
+  await fs.mkdir(rolloutDirectory, { recursive: true });
+  await fs.writeFile(rolloutPath, '');
+
+  const { port } = await startHttpServer(cleanup, {
+    cwd,
+    extraEnv: {
+      OSMOSIS_AMBIENT: '1',
+      OSMOSIS_MODE: 'record',
+      OSMOSIS_SESSIONS_DIR: sessionsDir,
+      OSMOSIS_TEMPLATE_DELAY_MS: '60000',
+    },
+  });
+  // If a watcher were accidentally started, let it attach at the empty EOF
+  // before adding the qualifying event below.
+  await delay(150);
+  await fs.appendFile(
+    rolloutPath,
+    `${JSON.stringify({
+      type: 'response_item',
+      payload: {
+        type: 'custom_tool_call',
+        name: 'exec',
+        input: JSON.stringify({ cmd: 'node build.js', workdir: cwd }),
+      },
+    })}\n`,
+  );
+
+  // A live watcher polls every ~2 seconds. Waiting past that interval proves
+  // record mode did not start one, rather than merely missing a short race.
+  await delay(2_250);
+  const reports = await (await fetch(`http://127.0.0.1:${port}/debug/reports`)).json();
+  assert.deepEqual(reports.reports, []);
+  const replay = await fs.readFile(path.join(cwd, '.osmosis', 'replay.json'), 'utf8').catch(() => null);
+  assert.equal(replay, null);
 });
 
 test('a correct answer persists cards and user mastery, then survives an SSE reload snapshot', { timeout: 10_000 }, async (t) => {

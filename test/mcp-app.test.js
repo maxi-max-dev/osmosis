@@ -133,7 +133,7 @@ test('resources/read renders the newest unanswered lesson and local CSP allowanc
     source: {
       task: 'Latest local change',
       what_i_did: 'Latest source came from local Codex activity.',
-      kind: 'observed',
+      kind: 'observed-change',
     },
     lesson: 'A latest lesson explains the exact technology now in use.',
     question: 'Which lesson should Osmosis show?',
@@ -162,8 +162,10 @@ test('resources/read renders the newest unanswered lesson and local CSP allowanc
   assert.equal(content.mimeType, 'text/html');
   assert.equal(content._meta.ui.csp.connectDomains[0], 'http://127.0.0.1:4321');
   assert.deepEqual(content._meta.ui.csp.resourceDomains, []);
-  assert.match(content.text, /Latest local change/);
-  assert.match(content.text, /Latest source came from local Codex activity/);
+  assert.match(content.text, /Local Codex change/);
+  assert.doesNotMatch(content.text, /Latest local change/);
+  assert.match(content.text, /Osmosis observed a local Codex change/);
+  assert.doesNotMatch(content.text, /Latest source came from local Codex activity/);
   assert.match(content.text, /Observed change/);
   assert.doesNotMatch(content.text, /Reported by agent/);
   assert.match(content.text, /A latest lesson explains the exact technology now in use/);
@@ -197,6 +199,56 @@ test('inline cards default missing provenance to the agent report label', () => 
   assert.match(html, /Reported by agent/);
   assert.match(html, /source-label--agent/);
   assert.doesNotMatch(html, /Observed change/);
+  assert.doesNotMatch(html, /Observed activity/);
+});
+
+test('inline cards reserve observed change for patches and use observed activity otherwise', () => {
+  const activityHtml = renderInlineCard({
+    state: {
+      cards: [
+        lessonCard({
+          cardId: 'activity-card',
+          conceptId: 'node',
+          conceptName: 'Node.js',
+          source: {
+            kind: 'observed-activity',
+            task: 'untrusted-rollout-identifier.js',
+            what_i_did: 'Observed the node command and .js extension.',
+          },
+          lesson: 'A lesson.',
+          question: 'A question?',
+          options: ['One', 'Two', 'Three'],
+        }),
+      ],
+      strengths: {},
+      tree: { meta: {}, nodes: [] },
+    },
+  });
+  const legacyHtml = renderInlineCard({
+    state: {
+      cards: [
+        lessonCard({
+          cardId: 'legacy-observed-card',
+          conceptId: 'mcp',
+          conceptName: 'MCP',
+          source: { kind: 'observed', what_i_did: 'Observed local Codex activity.' },
+          lesson: 'A lesson.',
+          question: 'A question?',
+          options: ['One', 'Two', 'Three'],
+        }),
+      ],
+      strengths: {},
+      tree: { meta: {}, nodes: [] },
+    },
+  });
+
+  assert.match(activityHtml, /Observed activity/);
+  assert.match(activityHtml, /source-label--observed-activity/);
+  assert.doesNotMatch(activityHtml, /Observed change/);
+  assert.doesNotMatch(activityHtml, /untrusted-rollout-identifier\.js/);
+  assert.match(legacyHtml, /Observed activity/);
+  assert.match(legacyHtml, /source-label--observed-activity/);
+  assert.doesNotMatch(legacyHtml, /Observed change/);
 });
 
 test('resources/read returns a calm inline empty state when no lesson is waiting', () => {
