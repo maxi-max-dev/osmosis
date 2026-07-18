@@ -1,5 +1,5 @@
-# Sanitized replay fixture
+# Sanitized Codex replay fixture
 
-`sanitized-none-replay.json` was recorded locally with `OSMOSIS_PROVIDER=none` and `OSMOSIS_MODE=record` on 2026-07-18, then reviewed to contain only generic milestone text.
+`sanitized-codex-replay.json` was recorded on 2026-07-18 from a real Codex-provider session (`OSMOSIS_PROVIDER=codex`) and is replayed deterministically for judging.
 
-It is intentionally a development template rather than a live provider claim. The judge fixture will be recorded from a real Codex-provider session (`OSMOSIS_PROVIDER=codex`) and replayed for deterministic judging after the scheduled fixture-recording handoff.
+It contains five report-driven Sydney Harbour milestones, five real generated cards, and the recorded 13-node knowledge tree. The shipped copy was reviewed to exclude local paths, credentials, browser traces, user identifiers, and raw project code.

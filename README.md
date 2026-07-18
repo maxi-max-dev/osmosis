@@ -151,17 +151,17 @@ To replay a fixture, place one at `./.osmosis/replay.json` and start in replay m
 
 ```bash
 mkdir -p .osmosis
-cp fixtures/sanitized-none-replay.json .osmosis/replay.json
+cp fixtures/sanitized-codex-replay.json .osmosis/replay.json
 OSMOSIS_PROVIDER=none OSMOSIS_MODE=replay npm start
 ```
 
 Each real `osmosis_report` consumes one replay entry in order and uses the current report as the visible source line. Replay makes zero model calls and returns a calm `replay-complete` status after the final card. The submission video runs in `replay` mode.
 
-The included [sanitized-none-replay.json](fixtures/sanitized-none-replay.json) is an anonymized development template, not the final judge recording. During the fixture-recording handoff, it will be replaced by a fixture recorded from a real Codex-provider session (`OSMOSIS_PROVIDER=codex`), replayed for deterministic judging.
+The included [sanitized-codex-replay.json](fixtures/sanitized-codex-replay.json) was recorded from a real Codex-provider session (`OSMOSIS_PROVIDER=codex`), replayed for deterministic judging. It contains five report-driven Sydney Harbour lessons and the real 13-node knowledge tree; it has been reviewed to exclude local paths, credentials, browser traces, and personal data.
 
 ## Replay and public demo
 
-The [static replay page](docs/index.html) is a single deployable file in `docs/`: no API key, local server, or live agent is required. Configure GitHub Pages to deploy the `/docs` directory for a judge-facing URL. It renders the fixture's knowledge tree when present and includes a clearly labelled sanitized Project B carry-over snapshot. Its banner accurately identifies the checked-in development fixture as a sanitized `none`-provider recording. No public judge URL is claimed until a remote repository and GitHub Pages deployment exist.
+The [static replay page](docs/index.html) is a single deployable file in `docs/`: no API key, local server, or live agent is required. Configure GitHub Pages to deploy the `/docs` directory for a judge-facing URL. It renders the real Codex-provider fixture tree and cards, plus a separately sanitised Project B tree where `Animation loop` is visibly gold `CARRIED OVER` from the shared profile while only the new `Ferry movement` card is recorded. No public judge URL is claimed until a remote repository and GitHub Pages deployment exist.
 
 ## Known limitation
 

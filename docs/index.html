@@ -30,6 +30,9 @@
       .tree-node--branch > .tree-node-label { color: #b8ccff; font-weight: 800; }
       .tree-node--branch > .tree-node-label::before { background: #8eafff; }
       .tree-node--leaf > .tree-node-label::before { background: #75cfa2; }
+      .tree-node--carried > .tree-node-label { color: #ffd673; font-weight: 800; }
+      .tree-node--carried > .tree-node-label::before { background: #ffd673; box-shadow: 0 0 0 3px rgba(255, 214, 115, .12); }
+      .carried-over-label { background: rgba(255, 214, 115, .14); border: 1px solid rgba(255, 214, 115, .36); border-radius: 999px; color: #ffe5a4; font-size: .62rem; font-weight: 900; letter-spacing: .08em; margin-left: auto; padding: 3px 6px; white-space: nowrap; }
       .top { align-items: flex-start; display: flex; gap: 24px; justify-content: space-between; }
       .top h1 { margin-bottom: 0; }
       .mode { border: 1px solid rgba(93, 195, 145, .62); border-radius: 999px; color: #a7f2c8; font-size: .73rem; font-weight: 800; letter-spacing: .05em; padding: 8px 10px; text-transform: uppercase; white-space: nowrap; }
@@ -59,6 +62,8 @@
       .snapshot-value { color: #ffe3a2; display: block; font-size: 1rem; font-weight: 800; margin-top: 6px; }
       .snapshot-detail { color: #c5d1ea; display: block; font-size: .84rem; line-height: 1.45; margin-top: 4px; }
       .gold { color: #ffd673; }
+      .proof-tree-heading { color: #e5edff; font-size: .8rem; font-weight: 900; letter-spacing: .08em; margin: 19px 0 0; text-transform: uppercase; }
+      .tree-list--proof { background: rgba(16, 23, 42, .38); border-radius: 11px; margin-top: 10px; padding: 13px; }
       footer { color: #667594; font-size: .74rem; padding: 10px 18px 14px; text-align: right; }
       @media (max-width: 760px) { main { grid-template-columns: 1fr; } aside { border-bottom: 1px solid rgba(130, 157, 212, .2); border-right: 0; } aside, section { padding: 30px 22px; } }
       @media (max-width: 430px) { .top { flex-direction: column; gap: 12px; } }
@@ -84,12 +89,12 @@
           </div>
           <span class="mode">No API key</span>
         </div>
-        <p class="banner">This page replays a sanitized, deterministic fixture. Embedded provider: <code id="fixture-provider">loading</code>. It demonstrates the interaction flow and stored knowledge-tree evidence without an API key or live project.</p>
+        <p class="banner">This page deterministically replays a sanitized fixture recorded from the real Codex provider. Embedded provider: <code id="fixture-provider">loading</code>. It demonstrates the interaction flow and stored knowledge-tree evidence without an API key or live project.</p>
         <div id="card-area" aria-live="polite"></div>
         <div class="carry-over" aria-label="Sanitized Project B carry-over snapshot">
           <p class="eyebrow">Cross-project proof</p>
           <h2>Project B carried-over</h2>
-          <p class="note">Sanitized static snapshot — this is separate from the replay fixture and makes the shared-profile gold state visible to judges.</p>
+          <p class="note">Sanitized real snapshot — Project B's actual tree and shared-profile gold state are shown separately from the replay fixture.</p>
           <div id="carry-over-proof"></div>
         </div>
       </section>
@@ -97,10 +102,316 @@
     <footer>static replay · <span id="footer-provider">loading</span> fixture · OpenAI Build Week</footer>
 
     <script id="replay-fixture" type="application/json">
-      {"format":"osmosis-replay","version":1,"provider":"none","entries":[{"sequence":1,"trigger":{"task":"Milestone 1","what_i_did":"Set up the first interactive part of the project.","stack_hints":["JavaScript","DOM"]},"card":{"concept_id":"feedback-loop","concept_name":"The feedback loop","lesson":"When your agent finishes a small piece of work, that is a useful pause point. A feedback loop turns that pause into a quick check: what changed, why it changed, and whether you understand it. You do not need to read every line of code first. By answering one focused question while the next task begins, you slowly connect the work happening in your project to the ideas behind it.","question":"What is Osmosis using an agent milestone for?","options":["A short learning moment about the work that just happened.","A request to replace the agent with a different coding tool.","A signal to erase the project and begin from scratch."],"correct_index":0,"explanation":"Exactly. A milestone becomes a small, timely lesson so waiting for an agent can become learning time."}},{"sequence":2,"trigger":{"task":"Milestone 2","what_i_did":"Connected a user action to the screen state.","stack_hints":["JavaScript","state"]},"card":{"concept_id":"feedback-loop","concept_name":"The feedback loop","lesson":"When your agent finishes a small piece of work, that is a useful pause point. A feedback loop turns that pause into a quick check: what changed, why it changed, and whether you understand it. You do not need to read every line of code first. By answering one focused question while the next task begins, you slowly connect the work happening in your project to the ideas behind it.","question":"What is Osmosis using an agent milestone for?","options":["A short learning moment about the work that just happened.","A request to replace the agent with a different coding tool.","A signal to erase the project and begin from scratch."],"correct_index":0,"explanation":"Exactly. A milestone becomes a small, timely lesson so waiting for an agent can become learning time."}}]}
+      {
+        "format": "osmosis-replay",
+        "version": 1,
+        "recorded_at": "2026-07-18T08:39:57.044Z",
+        "provider": "codex",
+        "tree": {
+          "meta": {
+            "created_at": "2026-07-18T08:39:48.132Z",
+            "surfaced_concept_ids": [
+              "rendering"
+            ]
+          },
+          "nodes": [
+            {
+              "concept_id": "harbour-map",
+              "concept_name": "Harbour map",
+              "parent_id": null
+            },
+            {
+              "concept_id": "scene-basics",
+              "concept_name": "Scene basics",
+              "parent_id": "harbour-map"
+            },
+            {
+              "concept_id": "camera-view",
+              "concept_name": "Camera view",
+              "parent_id": "harbour-map"
+            },
+            {
+              "concept_id": "map-layout",
+              "concept_name": "Map layout",
+              "parent_id": "harbour-map"
+            },
+            {
+              "concept_id": "drawing-surface",
+              "concept_name": "Drawing surface",
+              "parent_id": "scene-basics"
+            },
+            {
+              "concept_id": "rendering",
+              "concept_name": "Rendering",
+              "parent_id": "scene-basics"
+            },
+            {
+              "concept_id": "animation-loop",
+              "concept_name": "Animation loop",
+              "parent_id": "scene-basics"
+            },
+            {
+              "concept_id": "perspective",
+              "concept_name": "Perspective",
+              "parent_id": "camera-view"
+            },
+            {
+              "concept_id": "camera-position",
+              "concept_name": "Camera position",
+              "parent_id": "camera-view"
+            },
+            {
+              "concept_id": "framing",
+              "concept_name": "Framing",
+              "parent_id": "camera-view"
+            },
+            {
+              "concept_id": "coordinates",
+              "concept_name": "Coordinates",
+              "parent_id": "map-layout"
+            },
+            {
+              "concept_id": "scale",
+              "concept_name": "Scale",
+              "parent_id": "map-layout"
+            },
+            {
+              "concept_id": "placement",
+              "concept_name": "Placement",
+              "parent_id": "map-layout"
+            }
+          ]
+        },
+        "entries": [
+          {
+            "sequence": 1,
+            "recorded_at": "2026-07-18T08:39:57.044Z",
+            "trigger": {
+              "task": "M1 Foundation",
+              "what_i_did": "Created a Three.js scene with a WebGL renderer, perspective camera, coordinate transform, and render-loop scaffold for a 3D Sydney Harbour map.",
+              "stack_hints": [
+                "Three.js",
+                "WebGL",
+                "camera",
+                "coordinate transforms",
+                "render loop"
+              ]
+            },
+            "card": {
+              "concept_id": "rendering",
+              "concept_name": "Rendering",
+              "lesson": "Rendering is the moment your 3D map becomes something you can actually see on screen. You can think of the scene as a miniature harbour set: it has places, shapes, and a camera angle, but it is still sitting in the dark. The renderer is like a theatre lighting crew and photographer combined. It looks through the camera, works out what should be visible, then paints that view onto your screen. Each new view of the map needs to be rendered again.",
+              "question": "What is the renderer mainly responsible for in your 3D map?",
+              "options": [
+                "Turning the camera's view of the scene into the picture on your screen.",
+                "Choosing where the camera should sit before the scene is shown.",
+                "Storing the map's places so they stay there after you close it."
+              ],
+              "correct_index": 0,
+              "explanation": "The renderer produces the visible screen image from the scene and camera. Camera placement is a separate choice, and saving map data is a separate storage job."
+            }
+          },
+          {
+            "sequence": 2,
+            "recorded_at": "2026-07-18T08:41:48.143Z",
+            "trigger": {
+              "task": "M2 Navigation",
+              "what_i_did": "Added OrbitControls and camera limits so a user can pan, zoom, and orbit Sydney Harbour.",
+              "stack_hints": [
+                "OrbitControls",
+                "camera controls",
+                "3D navigation"
+              ]
+            },
+            "card": {
+              "concept_id": "camera-position",
+              "concept_name": "Camera position",
+              "lesson": "Camera position is where you stand when looking at the 3D harbour. Moving it changes what you can see, even though Sydney Harbour itself has not moved. It is like walking around a physical model on a table: step sideways to see behind a building, lean closer to inspect it, or step back for the whole view. Orbit controls let you move that viewing spot with your mouse or touch gestures. The camera limits are guardrails, like a rope around the model, stopping you from walking through it, getting impossibly close, or wandering so far away that the harbour disappears.",
+              "question": "What do the camera limits mainly protect during navigation?",
+              "options": [
+                "They keep your view within useful distances and angles around the harbour.",
+                "They make every harbour building stay permanently in the same place.",
+                "They redraw the harbour more often so it looks more detailed."
+              ],
+              "correct_index": 0,
+              "explanation": "Camera limits constrain your viewpoint, not the harbour objects themselves or the scene's detail level."
+            }
+          },
+          {
+            "sequence": 3,
+            "recorded_at": "2026-07-18T08:43:22.502Z",
+            "trigger": {
+              "task": "M3 Spatial model",
+              "what_i_did": "Placed harbour landmarks from map coordinates into the 3D scene and added lighting for depth.",
+              "stack_hints": [
+                "coordinate mapping",
+                "3D transforms",
+                "lighting"
+              ]
+            },
+            "card": {
+              "concept_id": "coordinates",
+              "concept_name": "Coordinates",
+              "lesson": "Coordinates are an address system for your 3D world. Just as a street address tells you where to deliver a parcel, a set of coordinates tells the scene where to place each harbour landmark. You give every landmark a position: left or right, forward or back, and up or down. That lets you turn information from a map into a scene that keeps the same spatial relationships: a lighthouse stays near the water, and a dock stays beside it. If an address is wrong, the parcel goes to the wrong house; if coordinates are wrong, the landmark appears in the wrong place.",
+              "question": "What do coordinates mainly tell your 3D scene?",
+              "options": [
+                "Where each landmark should appear in the scene.",
+                "How bright each landmark should look in the scene.",
+                "How quickly each landmark should move in the scene."
+              ],
+              "correct_index": 0,
+              "explanation": "Coordinates are location addresses. Lighting controls brightness, while animation settings control movement."
+            }
+          },
+          {
+            "sequence": 4,
+            "recorded_at": "2026-07-18T08:45:04.031Z",
+            "trigger": {
+              "task": "M4 Interaction",
+              "what_i_did": "Added pointer picking with Three.js Raycaster so selecting a landmark opens its details.",
+              "stack_hints": [
+                "raycasting",
+                "pointer events",
+                "interaction"
+              ]
+            },
+            "card": {
+              "concept_id": "perspective",
+              "concept_name": "Perspective",
+              "lesson": "Perspective is the particular view your camera gives you of the 3D map: objects nearer to you look larger, and objects farther away look smaller. It also makes clicking work. When you point at a spot on the screen, the app imagines an invisible line starting at your viewpoint and passing through that spot. The first landmark that line reaches is the one selected. It is like shining a laser pointer from your eye through a window: whichever object the beam touches first is what you mean to point at.",
+              "question": "When you click a landmark, how does the app decide what you meant to select?",
+              "options": [
+                "It follows an invisible line from your viewpoint through the clicked screen spot.",
+                "It chooses the landmark whose label is closest to the clicked screen spot.",
+                "It selects whichever landmark was added to the map most recently."
+              ],
+              "correct_index": 0,
+              "explanation": "The click becomes a line through the camera’s perspective, and the first landmark it reaches is selected. Labels and the order landmarks were added do not determine the result."
+            }
+          },
+          {
+            "sequence": 5,
+            "recorded_at": "2026-07-18T09:19:16.436Z",
+            "trigger": {
+              "task": "M5 Render polish",
+              "what_i_did": "Finished the requestAnimationFrame update loop, responsive canvas resizing, and manual interaction checks.",
+              "stack_hints": [
+                "requestAnimationFrame",
+                "render loop",
+                "responsive canvas",
+                "testing"
+              ]
+            },
+            "card": {
+              "concept_id": "animation-loop",
+              "concept_name": "Animation loop",
+              "lesson": "An animation loop is the steady heartbeat that keeps your scene alive. Think of it like a flipbook in your hands: you show yourself a fresh picture again and again, so small changes become smooth movement. In your project, the loop repeatedly checks what has changed—such as a tap, drag, or moving object—and draws the newest version of the scene. Using the screen’s own timing helps those updates happen when the browser is ready to show them. Without this loop, the scene would behave more like a printed poster: it could appear once, but it would not keep responding and moving smoothly.",
+              "question": "What is the animation loop mainly responsible for in your project?",
+              "options": [
+                "It repeatedly refreshes the scene so changes and motion appear smoothly.",
+                "It stores the scene so it can reopen after the browser closes.",
+                "It stretches the scene so it always fills any screen size."
+              ],
+              "correct_index": 0,
+              "explanation": "The loop keeps producing fresh frames, allowing movement and interaction to appear quickly and smoothly. Saving the scene and resizing the canvas are separate jobs."
+            }
+          }
+        ]
+      }
     </script>
     <script id="project-b-snapshot" type="application/json">
-      {"project":"Project B","profile":"shared OSMOSIS_PROFILE_DIR","mastery":{"concept_name":"The feedback loop","strength":2,"state":"carried over"},"result":"No duplicate card emitted for this mastered concept."}
+      {
+        "project": "Sydney ferry-route viewer",
+        "profile": "shared OSMOSIS_PROFILE_DIR",
+        "tree": {
+          "meta": {
+            "created_at": "2026-07-18T09:22:07.805Z",
+            "surfaced_concept_ids": [
+              "ferry-movement"
+            ]
+          },
+          "nodes": [
+            {
+              "concept_id": "ferry-viewer",
+              "concept_name": "Ferry viewer",
+              "parent_id": null
+            },
+            {
+              "concept_id": "harbour-scene",
+              "concept_name": "Harbour scene",
+              "parent_id": "ferry-viewer"
+            },
+            {
+              "concept_id": "ferry-route",
+              "concept_name": "Ferry route",
+              "parent_id": "ferry-viewer"
+            },
+            {
+              "concept_id": "motion",
+              "concept_name": "Motion",
+              "parent_id": "ferry-viewer"
+            },
+            {
+              "concept_id": "interaction",
+              "concept_name": "Interaction",
+              "parent_id": "ferry-viewer"
+            },
+            {
+              "concept_id": "three-d-space",
+              "concept_name": "3D space",
+              "parent_id": "harbour-scene"
+            },
+            {
+              "concept_id": "camera-view",
+              "concept_name": "Camera view",
+              "parent_id": "harbour-scene"
+            },
+            {
+              "concept_id": "route-line",
+              "concept_name": "Route line",
+              "parent_id": "ferry-route"
+            },
+            {
+              "concept_id": "map-points",
+              "concept_name": "Map points",
+              "parent_id": "ferry-route"
+            },
+            {
+              "concept_id": "animation-loop",
+              "concept_name": "Animation loop",
+              "parent_id": "motion"
+            },
+            {
+              "concept_id": "ferry-movement",
+              "concept_name": "Ferry movement",
+              "parent_id": "motion"
+            },
+            {
+              "concept_id": "view-controls",
+              "concept_name": "View controls",
+              "parent_id": "interaction"
+            },
+            {
+              "concept_id": "user-input",
+              "concept_name": "User input",
+              "parent_id": "interaction"
+            }
+          ]
+        },
+        "mastery": {
+          "concept_id": "animation-loop",
+          "concept_name": "Animation loop",
+          "strength": 2,
+          "state": "carried over"
+        },
+        "recorded_cards": [
+          {
+            "concept_id": "ferry-movement",
+            "concept_name": "Ferry movement"
+          }
+        ],
+        "result": "Only Ferry movement was generated; no duplicate Animation loop card."
+      }
     </script>
     <script>
       (() => {
@@ -125,22 +436,16 @@
             .join('');
         }
 
-        function treeNodeMarkup(node, childrenByParent, visited) {
+        function treeNodeMarkup(node, childrenByParent, visited, carriedOverConceptIds) {
           if (visited.has(node.concept_id)) return '';
           visited.add(node.concept_id);
           const children = childrenByParent.get(node.concept_id) || [];
-          const childMarkup = children.map((child) => treeNodeMarkup(child, childrenByParent, visited)).join('');
-          return `<li class="tree-node tree-node--${children.length ? 'branch' : 'leaf'}"><span class="tree-node-label">${escapeHtml(node.concept_name)}</span>${childMarkup ? `<ol class="tree-children">${childMarkup}</ol>` : ''}</li>`;
+          const carriedOver = carriedOverConceptIds.has(node.concept_id);
+          const childMarkup = children.map((child) => treeNodeMarkup(child, childrenByParent, visited, carriedOverConceptIds)).join('');
+          return `<li class="tree-node tree-node--${children.length ? 'branch' : 'leaf'}${carriedOver ? ' tree-node--carried' : ''}"><span class="tree-node-label">${escapeHtml(node.concept_name)}${carriedOver ? '<span class="carried-over-label">CARRIED OVER</span>' : ''}</span>${childMarkup ? `<ol class="tree-children">${childMarkup}</ol>` : ''}</li>`;
         }
 
-        function renderFixtureTree() {
-          const nodes = Array.isArray(fixture.tree?.nodes) ? fixture.tree.nodes : [];
-          if (nodes.length === 0) {
-            fixtureTreeNote.textContent = 'This checked-in development fixture has no generated tree yet. A Codex-provider recording will render its stored tree here automatically.';
-            fixtureTree.innerHTML = '';
-            return;
-          }
-
+        function buildTreeMarkup(nodes, carriedOverConceptIds = new Set()) {
           const byId = new Map(nodes.map((node) => [node.concept_id, node]));
           const childrenByParent = new Map();
           const roots = [];
@@ -154,20 +459,35 @@
             }
           }
           const visited = new Set();
-          let markup = roots.map((node) => treeNodeMarkup(node, childrenByParent, visited)).join('');
-          markup += nodes.filter((node) => !visited.has(node.concept_id)).map((node) => treeNodeMarkup(node, childrenByParent, visited)).join('');
+          let markup = roots.map((node) => treeNodeMarkup(node, childrenByParent, visited, carriedOverConceptIds)).join('');
+          markup += nodes.filter((node) => !visited.has(node.concept_id)).map((node) => treeNodeMarkup(node, childrenByParent, visited, carriedOverConceptIds)).join('');
+          return markup;
+        }
+
+        function renderFixtureTree() {
+          const nodes = Array.isArray(fixture.tree?.nodes) ? fixture.tree.nodes : [];
+          if (nodes.length === 0) {
+            fixtureTreeNote.textContent = 'This fixture has no stored knowledge tree.';
+            fixtureTree.innerHTML = '';
+            return;
+          }
           fixtureTreeNote.textContent = `${nodes.length} concepts stored with this replay fixture.`;
-          fixtureTree.innerHTML = markup;
+          fixtureTree.innerHTML = buildTreeMarkup(nodes);
         }
 
         function renderCarryOver() {
-          const { mastery, profile, project, result } = projectBSnapshot;
+          const { mastery, profile, project, recorded_cards: recordedCards, result, tree } = projectBSnapshot;
+          const carriedOverConceptIds = mastery.strength >= 2 ? new Set([mastery.concept_id]) : new Set();
           carryOverProof.innerHTML = `
             <div class="snapshot-grid">
               <div class="snapshot-item"><span class="snapshot-label">Project</span><span class="snapshot-value">${escapeHtml(project)}</span><span class="snapshot-detail">A second project, not a duplicate lesson run.</span></div>
               <div class="snapshot-item"><span class="snapshot-label">Mastery</span><span class="snapshot-value gold">${escapeHtml(mastery.state)} · strength ${escapeHtml(mastery.strength)}</span><span class="snapshot-detail">${escapeHtml(mastery.concept_name)}</span></div>
-              <div class="snapshot-item"><span class="snapshot-label">Shared profile</span><span class="snapshot-value">${escapeHtml(profile)}</span><span class="snapshot-detail">${escapeHtml(result)}</span></div>
-            </div>`;
+              <div class="snapshot-item"><span class="snapshot-label">Recorded card</span><span class="snapshot-value">${escapeHtml(recordedCards.map((card) => card.concept_name).join(', '))}</span><span class="snapshot-detail">${escapeHtml(result)}</span></div>
+              <div class="snapshot-item"><span class="snapshot-label">Shared profile</span><span class="snapshot-value">${escapeHtml(profile)}</span><span class="snapshot-detail">Animation-loop mastery came from Project A.</span></div>
+            </div>
+            <p class="proof-tree-heading">Project B knowledge tree</p>
+            <ol class="tree-list tree-list--proof" id="carry-over-tree" aria-label="Project B knowledge tree with carried-over mastery"></ol>`;
+          carryOverProof.querySelector('#carry-over-tree').innerHTML = buildTreeMarkup(tree.nodes, carriedOverConceptIds);
         }
 
         function renderCard() {
