@@ -12,7 +12,7 @@ This is a plain-JavaScript, local-first MCP server and browser UI built for the 
 - No runtime package installation: the app uses Node's built-in modules only
 
 ```bash
-cd /Users/max/code/osmosis
+# From the cloned Osmosis repository root
 npm start
 ```
 
@@ -30,13 +30,16 @@ For the first report, Osmosis runs Codex once to build the initial 12–14-node 
 
 ## Start Codex with Osmosis
 
-Project-level MCP config is not supported by the tested Codex CLI version. Start Codex from the project you want to learn about and pass the MCP server with `-c` overrides:
+Project-level MCP config is not supported by the tested Codex CLI version. Start Codex from the project you want to learn about and pass the MCP server with `-c` overrides. The following assumes the clone and the demo project are sibling directories:
 
 ```bash
-cd /Users/max/code/osmosis-demo-a
+# From the cloned Osmosis repository root
+export OSMOSIS_ROOT="$PWD"
+mkdir -p ../osmosis-demo-a
+cd ../osmosis-demo-a
 codex \
   -c 'mcp_servers.osmosis.command="node"' \
-  -c 'mcp_servers.osmosis.args=["/Users/max/code/osmosis/server.js"]' \
+  -c "mcp_servers.osmosis.args=[\"$OSMOSIS_ROOT/server.js\"]" \
   -c 'mcp_servers.osmosis.env={OSMOSIS_PROVIDER="none"}'
 ```
 
@@ -81,7 +84,7 @@ Local data stays local: `~/.osmosis/profile.json` holds user-level mastery; the 
 Run the automated local checks:
 
 ```bash
-cd /Users/max/code/osmosis
+# From the cloned Osmosis repository root
 npm test
 ```
 
@@ -115,11 +118,13 @@ This proof passed in an independent mounted demo session on 2026-07-18: the expe
 In a separate terminal, start a disposable Codex session from the demo project:
 
 ```bash
-mkdir -p /Users/max/code/osmosis-demo-a
-cd /Users/max/code/osmosis-demo-a
+# From the cloned Osmosis repository root
+export OSMOSIS_ROOT="$PWD"
+mkdir -p ../osmosis-demo-a
+cd ../osmosis-demo-a
 codex \
   -c 'mcp_servers.osmosis.command="node"' \
-  -c 'mcp_servers.osmosis.args=["/Users/max/code/osmosis/server.js"]' \
+  -c "mcp_servers.osmosis.args=[\"$OSMOSIS_ROOT/server.js\"]" \
   -c 'mcp_servers.osmosis.env={OSMOSIS_PROVIDER="none"}'
 ```
 
@@ -130,7 +135,7 @@ curl -fsS http://127.0.0.1:4321/health
 curl -fsS http://127.0.0.1:4321/debug/reports
 ```
 
-The expected proof is: the health response names `/Users/max/code/osmosis-demo-a` as `processCwd`; one explicit report produces a browser card; two consecutive calls have no stdout corruption; and `/debug/reports` shows M1, M2, M3 in order.
+The expected proof is: the health response names the current demo directory (`$PWD`) as `processCwd`; one explicit report produces a browser card; two consecutive calls have no stdout corruption; and `/debug/reports` shows M1, M2, M3 in order.
 
 ## Record and replay
 
@@ -152,15 +157,21 @@ OSMOSIS_PROVIDER=none OSMOSIS_MODE=replay npm start
 
 Each real `osmosis_report` consumes one replay entry in order and uses the current report as the visible source line. Replay makes zero model calls and returns a calm `replay-complete` status after the final card. The submission video runs in `replay` mode.
 
-The included [sanitized-none-replay.json](fixtures/sanitized-none-replay.json) is an anonymized template-card recording. It is intentionally not GPT-generated; the final submission fixture will be re-recorded with GPT-5.6 only after the live provider is available.
+The included [sanitized-none-replay.json](fixtures/sanitized-none-replay.json) is an anonymized development template, not the final judge recording. During the fixture-recording handoff, it will be replaced by a fixture recorded from a real Codex-provider session (`OSMOSIS_PROVIDER=codex`), replayed for deterministic judging.
 
 ## Replay and public demo
 
-The [static replay page](docs/index.html) is a single deployable file in `docs/`: no API key, local server, or live agent is required. Configure GitHub Pages to deploy the `/docs` directory for a judge-facing URL. Its banner accurately identifies the current fixture as a sanitized `none`-provider recording. No public judge URL is claimed until a remote repository and GitHub Pages deployment exist.
+The [static replay page](docs/index.html) is a single deployable file in `docs/`: no API key, local server, or live agent is required. Configure GitHub Pages to deploy the `/docs` directory for a judge-facing URL. It renders the fixture's knowledge tree when present and includes a clearly labelled sanitized Project B carry-over snapshot. Its banner accurately identifies the checked-in development fixture as a sanitized `none`-provider recording. No public judge URL is claimed until a remote repository and GitHub Pages deployment exist.
 
 ## Known limitation
 
 Run one Osmosis-enabled project at a time. Concurrent projects can relay reports to the same localhost HTTP owner and mix project state; this version does not isolate them.
+
+## What's next
+
+- **MCP Apps inline rendering:** when Codex's `enable_mcp_apps` gate opens, render Osmosis cards natively in the conversation flow.
+- **Plugin distribution:** package an npm runner and plugin shell so installation is repeatable and the Codex child-process cwd trap is contained.
+- **Ambient Capture:** validate a non-blocking `PostToolUse` observer for actual edits; it ships only after a stable desktop end-to-end proof and remains visibly distinct from an agent report.
 
 ## How Osmosis was built
 
