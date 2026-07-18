@@ -171,7 +171,7 @@ Run one Osmosis-enabled project at a time. Concurrent projects can relay reports
 
 - **MCP Apps inline rendering:** when Codex's `enable_mcp_apps` gate opens, render Osmosis cards natively in the conversation flow.
 - **Plugin distribution:** package an npm runner and plugin shell so installation is repeatable and the Codex child-process cwd trap is contained.
-- **Ambient Capture:** validate a non-blocking `PostToolUse` observer for actual edits; it ships only after a stable desktop end-to-end proof and remains visibly distinct from an agent report.
+- **Ambient Capture:** deferred after this round's spike. `PostToolUse` exposes the needed edit metadata, but Osmosis will add the non-blocking observer only after a fresh, trusted desktop session proves edit → hook → debounce → card end-to-end; observed cards will remain visibly distinct from agent reports.
 
 ## How Osmosis was built
 
