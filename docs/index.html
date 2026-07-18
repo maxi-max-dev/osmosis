@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#080c18" />
+    <title>Osmosis — Static replay demo</title>
+    <style>
+      :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #080c18; color: #eff4ff; }
+      * { box-sizing: border-box; }
+      body { background: radial-gradient(circle at 78% 8%, rgba(68, 104, 178, .24), transparent 31rem), #080c18; margin: 0; min-height: 100vh; }
+      button { font: inherit; }
+      button:focus-visible { outline: 2px solid #c6d8ff; outline-offset: 3px; }
+      main { display: grid; grid-template-columns: minmax(240px, .72fr) minmax(0, 1.55fr); min-height: calc(100vh - 36px); }
+      aside, section { padding: clamp(28px, 5vw, 68px); }
+      aside { background: rgba(8, 14, 28, .8); border-right: 1px solid rgba(130, 157, 212, .2); }
+      .eyebrow { color: #9eb9ff; font-size: .71rem; font-weight: 800; letter-spacing: .14em; margin: 0 0 9px; text-transform: uppercase; }
+      h1 { font-size: clamp(1.8rem, 3vw, 2.7rem); letter-spacing: -.05em; margin: 0 0 15px; }
+      h2 { font-size: 1rem; margin: 36px 0 12px; }
+      .note, .source { color: #9aa9c8; line-height: 1.6; }
+      .recording-list { display: grid; gap: 9px; list-style: none; margin: 22px 0 0; padding: 0; }
+      .recording-list li { border-left: 2px solid #465574; color: #94a2c0; padding: 8px 11px; }
+      .recording-list li.played { border-color: #8eafff; color: #e5edff; }
+      .recording-list li.active { border-color: #f7c66a; color: #ffe4a7; }
+      .top { align-items: flex-start; display: flex; gap: 24px; justify-content: space-between; }
+      .top h1 { margin-bottom: 0; }
+      .mode { border: 1px solid rgba(93, 195, 145, .62); border-radius: 999px; color: #a7f2c8; font-size: .73rem; font-weight: 800; letter-spacing: .05em; padding: 8px 10px; text-transform: uppercase; white-space: nowrap; }
+      .banner { background: rgba(77, 110, 182, .12); border: 1px solid rgba(132, 165, 234, .34); border-radius: 12px; color: #cad8fa; line-height: 1.55; margin: 28px 0 15px; padding: 12px 14px; }
+      .card { background: linear-gradient(145deg, rgba(30, 43, 75, .98), rgba(14, 21, 39, .98)); border: 1px solid rgba(139, 165, 219, .32); border-radius: 21px; box-shadow: 0 26px 70px rgba(0, 0, 0, .28); padding: clamp(26px, 4vw, 44px); }
+      .concept { color: #a9c1ff; font-size: .71rem; font-weight: 800; letter-spacing: .14em; margin: 0 0 13px; text-transform: uppercase; }
+      .lesson { font-size: 1.04rem; line-height: 1.73; }
+      h3 { font-size: 1.15rem; line-height: 1.5; margin: 30px 0 16px; }
+      .answers { display: grid; gap: 10px; }
+      .answers button { background: rgba(13, 24, 47, .84); border: 1px solid rgba(115, 140, 192, .52); border-radius: 11px; color: #dce6ff; cursor: pointer; line-height: 1.45; padding: 14px 16px; text-align: left; }
+      .answers button:hover:not(:disabled) { background: rgba(36, 55, 94, .94); border-color: #adc7ff; }
+      .answers button:disabled { cursor: default; opacity: .77; }
+      .answers button.correct { border-color: #68c897; color: #d5ffe7; }
+      .answers button.incorrect { border-color: #ef99a9; color: #ffdae0; }
+      .feedback { border-left: 3px solid #68c897; color: #d2ddf4; line-height: 1.6; margin-top: 21px; padding-left: 14px; }
+      .feedback.incorrect { border-color: #ef99a9; }
+      .feedback strong { color: #eff4ff; display: block; margin-bottom: 5px; }
+      .advance { background: #bed1ff; border: 0; border-radius: 10px; color: #0b1327; cursor: pointer; font-weight: 800; margin-top: 24px; padding: 12px 16px; }
+      .advance:disabled { cursor: default; opacity: .55; }
+      .empty { color: #9daccc; font-size: 1.05rem; line-height: 1.6; }
+      footer { color: #667594; font-size: .74rem; padding: 10px 18px 14px; text-align: right; }
+      @media (max-width: 760px) { main { grid-template-columns: 1fr; } aside { border-bottom: 1px solid rgba(130, 157, 212, .2); border-right: 0; } aside, section { padding: 30px 22px; } }
+      @media (max-width: 430px) { .top { flex-direction: column; gap: 12px; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <aside>
+        <p class="eyebrow">Osmosis public demo</p>
+        <h1>Replay the learning flow</h1>
+        <p class="note">This page runs entirely in your browser. It has no API key, server, or live project connection.</p>
+        <h2>Recorded milestones</h2>
+        <ol class="recording-list" id="recording-list"></ol>
+      </aside>
+      <section>
+        <div class="top">
+          <div>
+            <p class="eyebrow">Static replay</p>
+            <h1>Learn while your agent works</h1>
+          </div>
+          <span class="mode">No API key</span>
+        </div>
+        <p class="banner">This is an anonymized template-card replay recorded with the <code>none</code> provider. It demonstrates the interaction flow, not live GPT generation or a real project.</p>
+        <div id="card-area" aria-live="polite"></div>
+      </section>
+    </main>
+    <footer>static replay · none-provider fixture · OpenAI Build Week</footer>
+
+    <script id="replay-fixture" type="application/json">
+      {"format":"osmosis-replay","version":1,"provider":"none","entries":[{"sequence":1,"trigger":{"task":"Milestone 1","what_i_did":"Set up the first interactive part of the project.","stack_hints":["JavaScript","DOM"]},"card":{"concept_id":"feedback-loop","concept_name":"The feedback loop","lesson":"When your agent finishes a small piece of work, that is a useful pause point. A feedback loop turns that pause into a quick check: what changed, why it changed, and whether you understand it. You do not need to read every line of code first. By answering one focused question while the next task begins, you slowly connect the work happening in your project to the ideas behind it.","question":"What is Osmosis using an agent milestone for?","options":["A short learning moment about the work that just happened.","A request to replace the agent with a different coding tool.","A signal to erase the project and begin from scratch."],"correct_index":0,"explanation":"Exactly. A milestone becomes a small, timely lesson so waiting for an agent can become learning time."}},{"sequence":2,"trigger":{"task":"Milestone 2","what_i_did":"Connected a user action to the screen state.","stack_hints":["JavaScript","state"]},"card":{"concept_id":"feedback-loop","concept_name":"The feedback loop","lesson":"When your agent finishes a small piece of work, that is a useful pause point. A feedback loop turns that pause into a quick check: what changed, why it changed, and whether you understand it. You do not need to read every line of code first. By answering one focused question while the next task begins, you slowly connect the work happening in your project to the ideas behind it.","question":"What is Osmosis using an agent milestone for?","options":["A short learning moment about the work that just happened.","A request to replace the agent with a different coding tool.","A signal to erase the project and begin from scratch."],"correct_index":0,"explanation":"Exactly. A milestone becomes a small, timely lesson so waiting for an agent can become learning time."}}]}
+    </script>
+    <script>
+      (() => {
+        const fixture = JSON.parse(document.querySelector('#replay-fixture').textContent);
+        const state = { active: null, cursor: 0, strengths: {} };
+        const cardArea = document.querySelector('#card-area');
+        const list = document.querySelector('#recording-list');
+
+        const escapeHtml = (value) => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
+
+        function renderList() {
+          list.innerHTML = fixture.entries
+            .map((entry, index) => {
+              const active = state.active && state.active.entry.sequence === entry.sequence;
+              const played = index < state.cursor;
+              return `<li class="${active ? 'active' : played ? 'played' : ''}"><strong>${escapeHtml(entry.trigger.task)}</strong><br>${escapeHtml(entry.trigger.what_i_did)}</li>`;
+            })
+            .join('');
+        }
+
+        function renderCard() {
+          const active = state.active;
+          if (!active) {
+            const done = state.cursor >= fixture.entries.length;
+            cardArea.innerHTML = `
+              <div class="card">
+                <p class="empty">${done ? 'Replay complete. You have seen every recorded milestone.' : 'Press the button to replay the next recorded agent milestone.'}</p>
+                <button class="advance" type="button" data-advance ${done ? 'disabled' : ''}>${done ? 'Replay complete' : 'Play next milestone'}</button>
+              </div>`;
+            cardArea.querySelector('[data-advance]')?.addEventListener('click', playNext);
+            return;
+          }
+
+          const { card, entry, answered, selected, correct } = active;
+          const feedback = answered
+            ? `<div class="feedback ${correct ? '' : 'incorrect'}"><strong>${correct ? 'Correct' : 'Not quite'}</strong>${escapeHtml(card.explanation)}</div>`
+            : '';
+          cardArea.innerHTML = `
+            <article class="card">
+              <p class="concept">${escapeHtml(card.concept_name)}</p>
+              <p class="source">From the recorded milestone: "${escapeHtml(entry.trigger.what_i_did)}"</p>
+              <p class="lesson">${escapeHtml(card.lesson)}</p>
+              <h3>${escapeHtml(card.question)}</h3>
+              <div class="answers" aria-label="Answer choices">
+                ${card.options.map((option, index) => {
+                  const answerClass = answered && selected === index ? (correct ? 'correct' : 'incorrect') : '';
+                  return `<button type="button" data-answer="${index}" class="${answerClass}" ${answered ? 'disabled' : ''}>${escapeHtml(option)}</button>`;
+                }).join('')}
+              </div>
+              ${feedback}
+              ${answered ? '<button class="advance" type="button" data-advance>Play next milestone</button>' : ''}
+            </article>`;
+          cardArea.querySelectorAll('[data-answer]').forEach((button) => button.addEventListener('click', () => answer(Number(button.dataset.answer))));
+          cardArea.querySelector('[data-advance]')?.addEventListener('click', playNext);
+        }
+
+        function playNext() {
+          const entry = fixture.entries[state.cursor];
+          if (!entry) {
+            state.active = null;
+            render();
+            return;
+          }
+          state.cursor += 1;
+          state.active = { entry, card: entry.card, answered: false, selected: null, correct: null };
+          render();
+        }
+
+        function answer(index) {
+          const active = state.active;
+          if (!active || active.answered) return;
+          active.selected = index;
+          active.correct = index === active.card.correct_index;
+          active.answered = true;
+          state.strengths[active.card.concept_id] = active.correct ? 2 : 1;
+          render();
+        }
+
+        function render() {
+          renderList();
+          renderCard();
+        }
+
+        render();
+      })();
+    </script>
+  </body>
+</html>

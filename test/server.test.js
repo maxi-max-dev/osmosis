@@ -147,6 +147,17 @@ async function nextEventOfType(stream, expectedType) {
   throw new Error(`Did not receive SSE event ${expectedType}.`);
 }
 
+async function nextEventMatching(stream, predicate, description) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const event = await stream.nextEvent();
+    if (predicate(event)) {
+      return event;
+    }
+  }
+  throw new Error(`Did not receive ${description}.`);
+}
+
 function rawMcpMessages() {
   return [
     {
@@ -400,4 +411,203 @@ test('a wrong answer returns only after two other delivered cards in the same se
   assert.equal(secondIntervening.source.task, 'Third report');
   assert.equal(requeued.source.task, 'First report');
   assert.notEqual(requeued.card_id, firstCard.card_id);
+});
+
+test('record mode creates a clean replay from reports but excludes starter cards and requeues', { timeout: 10_000 }, async (t) => {
+  const cwd = await temporaryProject(t);
+  const port = await reservePort();
+  const runner = startServer({
+    cwd,
+    port,
+    extraEnv: { OSMOSIS_MODE: 'record', OSMOSIS_TEMPLATE_DELAY_MS: '250' },
+  });
+  t.after(() => stopServer(runner));
+
+  await waitFor(() => health(port), 'the record-mode server');
+  const stream = await openEvents(port);
+  t.after(() => stream.close());
+  assert.deepEqual((await stream.nextEvent()).data.cards, []);
+  await delay(350);
+  await assert.rejects(fs.readFile(path.join(cwd, '.osmosis', 'cards.json'), 'utf8'), { code: 'ENOENT' });
+
+  runner.child.stdin.write(`${JSON.stringify(reportMessage(1, 'M1', 'Recorded the first real lesson.'))}\n`);
+  await waitFor(() => runner.stdoutLines().length === 1, 'the first record acknowledgement');
+  const firstCard = (await nextEventOfType(stream, 'card')).data;
+  const wrongResponse = await fetch(`http://127.0.0.1:${port}/answer`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ card_id: firstCard.card_id, chosen_index: 1 }),
+  });
+  assert.equal((await wrongResponse.json()).correct, false);
+
+  runner.child.stdin.write(
+    `${JSON.stringify(reportMessage(2, 'M2', 'Recorded the first intervening lesson.'))}\n${JSON.stringify(reportMessage(3, 'M3', 'Recorded the second intervening lesson.'))}\n`,
+  );
+  await waitFor(() => runner.stdoutLines().length === 3, 'the later record acknowledgements');
+  const secondCard = (await nextEventOfType(stream, 'card')).data;
+  const thirdCard = (await nextEventOfType(stream, 'card')).data;
+  const requeuedCard = (await nextEventOfType(stream, 'card')).data;
+  assert.equal(secondCard.source.task, 'M2');
+  assert.equal(thirdCard.source.task, 'M3');
+  assert.equal(requeuedCard.source.task, 'M1');
+
+  const replay = JSON.parse(await fs.readFile(path.join(cwd, '.osmosis', 'replay.json'), 'utf8'));
+  assert.equal(replay.format, 'osmosis-replay');
+  assert.equal(replay.provider, 'none');
+  assert.deepEqual(replay.entries.map((entry) => entry.trigger.task), ['M1', 'M2', 'M3']);
+  assert.equal(replay.entries.length, 3);
+  assert.equal('card_id' in replay.entries[0].card, false);
+  assert.equal('state' in replay.entries[0].card, false);
+});
+
+test('replay mode emits recorded concepts in order for real reports and stops cleanly at exhaustion', { timeout: 10_000 }, async (t) => {
+  const cwd = await temporaryProject(t);
+  const port = await reservePort();
+  await fs.mkdir(path.join(cwd, '.osmosis'), { recursive: true });
+  await fs.writeFile(
+    path.join(cwd, '.osmosis', 'replay.json'),
+    JSON.stringify({
+      format: 'osmosis-replay',
+      version: 1,
+      recorded_at: '2026-07-18T00:00:00.000Z',
+      provider: 'none',
+      tree: { meta: {}, nodes: [] },
+      entries: [
+        {
+          sequence: 1,
+          recorded_at: '2026-07-18T00:00:01.000Z',
+          trigger: { task: 'Recorded M1', what_i_did: 'Recorded first lesson.', stack_hints: ['Node.js'] },
+          card: {
+            concept_id: 'event-loop',
+            concept_name: 'The event loop',
+            lesson: 'Your app takes one small job at a time so it can stay responsive.',
+            question: 'What does the event loop help your app do?',
+            options: ['Keep handling one small job at a time.', 'Store every image forever.', 'Remove all user clicks.'],
+            correct_index: 0,
+            explanation: 'It coordinates small jobs so the app can respond.',
+          },
+        },
+        {
+          sequence: 2,
+          recorded_at: '2026-07-18T00:00:02.000Z',
+          trigger: { task: 'Recorded M2', what_i_did: 'Recorded second lesson.', stack_hints: ['DOM'] },
+          card: {
+            concept_id: 'data-flow',
+            concept_name: 'Data flow',
+            lesson: 'Information moves from an action to a decision and then to the screen.',
+            question: 'What does data flow describe?',
+            options: ['How information moves through the app.', 'How to erase app state.', 'How to avoid every button.'],
+            correct_index: 0,
+            explanation: 'It is the route information follows through the app.',
+          },
+        },
+      ],
+    }),
+  );
+  const runner = startServer({
+    cwd,
+    port,
+    extraEnv: { OSMOSIS_MODE: 'replay', OSMOSIS_TEMPLATE_DELAY_MS: '250' },
+  });
+  t.after(() => stopServer(runner));
+
+  await waitFor(() => health(port), 'the replay-mode server');
+  const stream = await openEvents(port);
+  t.after(() => stream.close());
+  assert.deepEqual((await stream.nextEvent()).data.cards, []);
+  await delay(350);
+  await assert.rejects(fs.readFile(path.join(cwd, '.osmosis', 'cards.json'), 'utf8'), { code: 'ENOENT' });
+
+  runner.child.stdin.write(
+    `${JSON.stringify(reportMessage(1, 'Live M1', 'Triggered the first replay lesson.'))}\n${JSON.stringify(reportMessage(2, 'Live M2', 'Triggered the second replay lesson.'))}\n${JSON.stringify(reportMessage(3, 'Live M3', 'Tried to trigger beyond the replay.'))}\n`,
+  );
+  await waitFor(() => runner.stdoutLines().length === 3, 'the replay acknowledgements');
+  const firstCard = (await nextEventOfType(stream, 'card')).data;
+  const secondCard = (await nextEventOfType(stream, 'card')).data;
+  assert.equal(firstCard.concept_id, 'event-loop');
+  assert.equal(firstCard.source.what_i_did, 'Triggered the first replay lesson.');
+  assert.equal(secondCard.concept_id, 'data-flow');
+  assert.equal(secondCard.source.what_i_did, 'Triggered the second replay lesson.');
+
+  const complete = await nextEventMatching(
+    stream,
+    (event) => event.type === 'status' && event.data.state === 'replay-complete',
+    'a replay-complete status',
+  );
+  assert.equal(complete.data.message, 'Replay has no more recorded lessons.');
+  const cards = JSON.parse(await fs.readFile(path.join(cwd, '.osmosis', 'cards.json'), 'utf8'));
+  assert.equal(cards.cards.length, 2);
+});
+
+test('a mastered none-provider concept carries across projects without generating another card', { timeout: 15_000 }, async (t) => {
+  const root = await temporaryProject(t);
+  const projectA = path.join(root, 'project-a');
+  const projectB = path.join(root, 'project-b');
+  const profileDir = path.join(root, 'shared-profile');
+  await fs.mkdir(projectA, { recursive: true });
+  await fs.mkdir(projectB, { recursive: true });
+
+  const portA = await reservePort();
+  const serverA = startServer({
+    cwd: projectA,
+    port: portA,
+    extraEnv: { OSMOSIS_PROFILE_DIR: profileDir, OSMOSIS_TEMPLATE_DELAY_MS: '60000' },
+  });
+  t.after(() => stopServer(serverA));
+  await waitFor(() => health(portA), 'project A');
+  const streamA = await openEvents(portA);
+  t.after(() => streamA.close());
+  await streamA.nextEvent();
+
+  serverA.child.stdin.write(`${JSON.stringify(reportMessage(1, 'Project A M1', 'Created the first project lesson.'))}\n`);
+  await waitFor(() => serverA.stdoutLines().length === 1, 'project A acknowledgement');
+  const cardA = (await nextEventOfType(streamA, 'card')).data;
+  const answerA = await fetch(`http://127.0.0.1:${portA}/answer`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ card_id: cardA.card_id, chosen_index: 0 }),
+  });
+  assert.equal((await answerA.json()).strength, 2);
+  await stopServer(serverA);
+
+  await fs.mkdir(path.join(projectB, '.osmosis'), { recursive: true });
+  await fs.writeFile(
+    path.join(projectB, '.osmosis', 'tree.json'),
+    JSON.stringify({
+      meta: { created_at: new Date(Date.now() + 1_000).toISOString() },
+      nodes: [
+        { concept_id: 'project-map', concept_name: 'Your project', parent_id: null },
+        { concept_id: 'feedback-loop', concept_name: 'The feedback loop', parent_id: 'project-map' },
+      ],
+    }),
+  );
+
+  const portB = await reservePort();
+  const serverB = startServer({
+    cwd: projectB,
+    port: portB,
+    extraEnv: { OSMOSIS_PROFILE_DIR: profileDir, OSMOSIS_TEMPLATE_DELAY_MS: '60000' },
+  });
+  t.after(() => stopServer(serverB));
+  const healthB = await waitFor(() => health(portB), 'project B');
+  assert.equal(healthB.processCwd, await fs.realpath(projectB));
+  const streamB = await openEvents(portB);
+  t.after(() => streamB.close());
+  const snapshotB = await streamB.nextEvent();
+  assert.equal(snapshotB.data.strengths['feedback-loop'].strength, 2);
+  assert.equal(snapshotB.data.tree.nodes.length, 2);
+  assert.deepEqual(snapshotB.data.cards, []);
+
+  serverB.child.stdin.write(`${JSON.stringify(reportMessage(1, 'Project B M1', 'Started a second project with the same concept.'))}\n`);
+  await waitFor(() => serverB.stdoutLines().length === 1, 'project B acknowledgement');
+  const skipped = await nextEventMatching(
+    streamB,
+    (event) => event.type === 'status' && event.data.state === 'skipped',
+    'a mastered-concept skip',
+  );
+  assert.equal(skipped.data.concept_id, 'feedback-loop');
+  const reports = await (await fetch(`http://127.0.0.1:${portB}/debug/reports`)).json();
+  assert.deepEqual(reports.reports.map((report) => report.task), ['Project B M1']);
+  await delay(100);
+  await assert.rejects(fs.readFile(path.join(projectB, '.osmosis', 'cards.json'), 'utf8'), { code: 'ENOENT' });
 });

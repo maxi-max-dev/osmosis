@@ -4,7 +4,7 @@ Osmosis turns the time you spend waiting for an AI coding agent into short lesso
 
 This is a plain JavaScript, local-first MCP server and browser UI built for the OpenAI Build Week Education track.
 
-> Build status: Steps 1–3 are complete and verified with `OSMOSIS_PROVIDER=none`. The live GPT provider, generated skill tree, replay, and public static demo intentionally wait behind the Night 1 gate described below.
+> Build status: Steps 1–3, 5, and 6 are complete and verified. The app has polished UI, none-provider recording/replay, a static public replay page, and cross-project mastery proof. GPT-5.6 generation remains gated on API billing and the API key.
 
 ## Run locally
 
@@ -38,7 +38,7 @@ Give any coding agent the root [`AGENTS.md`](AGENTS.md) instruction, which tells
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `OSMOSIS_PROVIDER` | `none` | `none` is implemented now. `openai` and `codex` are gated Step 4 work; start with `none` until API billing is enabled. |
-| `OSMOSIS_MODE` | `live` | `live` is implemented now. `record` and `replay` are gated Step 6 work. |
+| `OSMOSIS_MODE` | `live` | `live` creates template lessons; `record` saves report-driven cards; `replay` consumes a local replay fixture in order. |
 | `OSMOSIS_PORT` | `4321` | Local HTTP/SSE port. |
 | `OSMOSIS_HOST` | `127.0.0.1` | Local bind address. |
 | `OPENAI_API_KEY` | unset | Required only by the future `openai` provider; never commit it. |
@@ -59,6 +59,9 @@ The current suite verifies all completed P0 behavior:
 - a second server instance keeps MCP stdio alive after its HTTP port is guarded, then relays its report to the primary instance;
 - `POST /answer` atomically persists `cards.json` and `~/.osmosis/profile.json`, and a reconnecting browser receives the answered state;
 - an incorrect answer waits for two other delivered cards before it reappears.
+- record mode excludes starter cards and wrong-answer requeues from `.osmosis/replay.json`;
+- replay mode uses real reports to emit sanitized recorded cards in order, then finishes calmly when exhausted;
+- two distinct project directories sharing one profile prove mastery carry-over: project B shows gold `carried over` state and skips a mastered none-provider concept.
 
 For a quick manual SSE check:
 
@@ -71,7 +74,7 @@ The stream should start with `event: snapshot` and then show `event: card`.
 
 ## Night 1 gate: operator-run Codex proof
 
-Do not enable the live GPT provider, tree polish, replay, request-card control, or hardcore mode until this proof is complete. The production build thread deliberately does **not** mount Osmosis itself.
+This proof passed in an independent mounted demo session on 2026-07-18: the expected cwd, source-linked SSE card, answer/reload persistence, clean stdout, and ordered M1/M2/M3 reports all passed. The production build thread deliberately does **not** mount Osmosis itself.
 
 In a separate terminal, start a disposable Codex session from the demo project:
 
@@ -91,14 +94,36 @@ curl -fsS http://127.0.0.1:4321/health
 curl -fsS http://127.0.0.1:4321/debug/reports
 ```
 
-The expected proof is: the health response names `/Users/max/code/osmosis-demo-a` as `processCwd`; one explicit report produces a browser card; two consecutive calls have no stdout corruption; and `/debug/reports` shows M1, M2, M3 in order. Send those results back to the primary build thread. The answer persistence/reload part of this gate is already locally verified here.
+The expected proof is: the health response names `/Users/max/code/osmosis-demo-a` as `processCwd`; one explicit report produces a browser card; two consecutive calls have no stdout corruption; and `/debug/reports` shows M1, M2, M3 in order.
+
+## Record and replay
+
+Record a clean, report-driven local session with no starter card:
+
+```bash
+OSMOSIS_PROVIDER=none OSMOSIS_MODE=record npm start
+```
+
+Every real report card is appended atomically to `./.osmosis/replay.json`. The recording stores only durable generated card fields and the report trigger—never runtime card IDs, answer state, or user profile data.
+
+To replay a fixture, place one at `./.osmosis/replay.json` and start in replay mode:
+
+```bash
+mkdir -p .osmosis
+cp fixtures/sanitized-none-replay.json .osmosis/replay.json
+OSMOSIS_PROVIDER=none OSMOSIS_MODE=replay npm start
+```
+
+Each real `osmosis_report` consumes one replay entry in order and uses the current report as the visible source line. Replay makes zero model calls and returns a calm `replay-complete` status after the final card.
+
+The included [`sanitized-none-replay.json`](fixtures/sanitized-none-replay.json) is an anonymized template-card recording. It is intentionally not GPT-generated; the final submission fixture will be re-recorded with GPT-5.6 only after the live provider is available.
 
 ## Replay and public demo
 
-The planned public test build is a static replay page that needs neither a server nor an API key. Once the live provider is implemented and a real session is recorded, replay cards will be generated by GPT-5.6 in that real recorded session; replay mode will trigger those recorded cards from real reports without API calls.
+The [static replay page](docs/index.html) is a single deployable file in `docs/`: no API key, local server, or live agent is required. Configure GitHub Pages to deploy the `/docs` directory for a judge-facing URL. Its banner accurately identifies the current fixture as a sanitized `none`-provider recording.
 
 ## How Osmosis was built
 
-Codex has built all current product code in one primary thread. The gated live stage will use GPT-5.6 for card and tree generation via Structured Outputs. The known limitation is intentional for the hackathon: the local server lives and dies with the Codex session.
+Codex built all current product code in one primary thread. The gated live stage will use GPT-5.6 for card and tree generation via Structured Outputs. The known limitation is intentional for the hackathon: the local server lives and dies with the Codex session.
 
 The MCP is agent-agnostic even though the demo uses Codex.

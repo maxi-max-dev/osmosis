@@ -1,0 +1,62 @@
+{
+  "format": "osmosis-replay",
+  "version": 1,
+  "recorded_at": "2026-07-18T00:00:00.000Z",
+  "provider": "none",
+  "tree": {
+    "meta": {},
+    "nodes": []
+  },
+  "entries": [
+    {
+      "sequence": 1,
+      "recorded_at": "2026-07-18T00:00:01.000Z",
+      "trigger": {
+        "task": "Milestone 1",
+        "what_i_did": "Set up the first interactive part of the project.",
+        "stack_hints": [
+          "JavaScript",
+          "DOM"
+        ]
+      },
+      "card": {
+        "concept_id": "feedback-loop",
+        "concept_name": "The feedback loop",
+        "lesson": "When your agent finishes a small piece of work, that is a useful pause point. A feedback loop turns that pause into a quick check: what changed, why it changed, and whether you understand it. You do not need to read every line of code first. By answering one focused question while the next task begins, you slowly connect the work happening in your project to the ideas behind it.",
+        "question": "What is Osmosis using an agent milestone for?",
+        "options": [
+          "A short learning moment about the work that just happened.",
+          "A request to replace the agent with a different coding tool.",
+          "A signal to erase the project and begin from scratch."
+        ],
+        "correct_index": 0,
+        "explanation": "Exactly. A milestone becomes a small, timely lesson so waiting for an agent can become learning time."
+      }
+    },
+    {
+      "sequence": 2,
+      "recorded_at": "2026-07-18T00:00:02.000Z",
+      "trigger": {
+        "task": "Milestone 2",
+        "what_i_did": "Connected a user action to the screen state.",
+        "stack_hints": [
+          "JavaScript",
+          "state"
+        ]
+      },
+      "card": {
+        "concept_id": "feedback-loop",
+        "concept_name": "The feedback loop",
+        "lesson": "When your agent finishes a small piece of work, that is a useful pause point. A feedback loop turns that pause into a quick check: what changed, why it changed, and whether you understand it. You do not need to read every line of code first. By answering one focused question while the next task begins, you slowly connect the work happening in your project to the ideas behind it.",
+        "question": "What is Osmosis using an agent milestone for?",
+        "options": [
+          "A short learning moment about the work that just happened.",
+          "A request to replace the agent with a different coding tool.",
+          "A signal to erase the project and begin from scratch."
+        ],
+        "correct_index": 0,
+        "explanation": "Exactly. A milestone becomes a small, timely lesson so waiting for an agent can become learning time."
+      }
+    }
+  ]
+}
