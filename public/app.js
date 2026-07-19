@@ -21,6 +21,7 @@
 
   let provider = 'none';
   let toastTimer = null;
+  const seenStartupNotices = new Set();
 
   const cardStage = document.querySelector('#studio-stage');
   const trail = document.querySelector('#learning-trail');
@@ -515,6 +516,17 @@
     toastTimer = window.setTimeout(() => toast.classList.remove('visible'), 3_400);
   }
 
+  function applyNotices(notices) {
+    if (!Array.isArray(notices)) return;
+    for (const notice of notices) {
+      if (!notice || typeof notice.message !== 'string' || !notice.message) continue;
+      const key = `${notice.code || 'notice'}:${notice.project_id || ''}`;
+      if (seenStartupNotices.has(key)) continue;
+      seenStartupNotices.add(key);
+      showToast(notice.message);
+    }
+  }
+
   function controllerFor(projectId) {
     if (!store.auto.has(projectId)) {
       store.auto.set(projectId, { state: studioState?.createAutoAdvanceState?.() || { enabled: false }, timer: null, setting: false });
@@ -840,6 +852,7 @@
     store.settings = { ...store.settings, ...value };
     applyActivations(value.activation);
     applyActivations(value.activations);
+    applyNotices(value.notices);
   }
 
   function updateConnectionStatus(status) {
@@ -882,6 +895,7 @@
     applySettings(payload.settings);
     applyActivations(payload.activation);
     applyActivations(payload.activations);
+    applyNotices(payload.notices);
     if (payload.channel?.project_id) applySnapshot(payload.channel.project_id, payload.channel);
     const route = studioState?.parseStudioRoute?.(window.location.hash) || { projectId: null, view: 'now' };
     const desired = route.projectId && store.projects.has(route.projectId)

@@ -1,13 +1,16 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const { spawn } = require('node:child_process');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 
 const { createAmbientWatcher, dateDirectories } = require('../lib/ambient');
-const { AMBIENT_IGNORE_ENV, createProvider } = require('../lib/provider');
+const { AMBIENT_IGNORE_ENV, GENERATOR_CHILD_ENV, createProvider } = require('../lib/provider');
+
+const SERVER_PATH = path.resolve(__dirname, '..', 'server.js');
 
 function cardJson() {
   return {
@@ -57,6 +60,9 @@ function finish(stdinState) {
     codexHomeExists: fs.existsSync(process.env.CODEX_HOME),
     files,
     marker: process.env.${AMBIENT_IGNORE_ENV},
+    generatorChild: process.env.${GENERATOR_CHILD_ENV},
+    cwd: process.cwd(),
+    args,
     stdinState,
   }));
   fs.writeFileSync(outputPath, ${JSON.stringify(JSON.stringify(cardJson()))});
@@ -70,6 +76,52 @@ process.stdin.resume();
 `;
 }
 
+function sentinelAwareCodexScript() {
+  return `#!/usr/bin/env node
+'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
+const args = process.argv.slice(2);
+const outputPath = args[args.indexOf('--output-last-message') + 1];
+const configPath = path.join(process.env.CODEX_HOME, 'config.toml');
+const config = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : '';
+// This is a deliberately tiny Codex-style config probe. A leaked MCP server
+// stanza would make the probe record that its sentinel could have launched.
+if (config.includes('[mcp_servers.sentinel]')) {
+  fs.writeFileSync(process.env.OSMOSIS_PROVIDER_SENTINEL_PATH, 'sentinel would have started');
+}
+fs.writeFileSync(process.env.OSMOSIS_PROVIDER_CAPTURE_PATH, JSON.stringify({
+  config,
+  cwd: process.cwd(),
+  args,
+  generatorChild: process.env.${GENERATOR_CHILD_ENV},
+}));
+fs.writeFileSync(outputPath, ${JSON.stringify(JSON.stringify(cardJson()))});
+`;
+}
+
+function runNodeProcess(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      ...options,
+      shell: false,
+      windowsHide: true,
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
+    child.stdout?.on('data', (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr?.on('data', (chunk) => {
+      stderr += chunk;
+    });
+    child.once('error', reject);
+    child.once('close', (code, signal) => resolve({ code, signal, stdout, stderr }));
+  });
+}
+
 test('the Codex generator receives a fresh isolated CODEX_HOME and ambient-ignore marker', async (t) => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'osmosis-provider-isolation-'));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
@@ -77,7 +129,36 @@ test('the Codex generator receives a fresh isolated CODEX_HOME and ambient-ignor
   const capturePath = path.join(directory, 'child-environment.json');
   const realCodexHome = path.join(directory, 'real-codex-home');
   const authContents = '{"token":"test-only"}\n';
-  const configContents = 'model = "test-model"\n';
+  const configContents = [
+    '# child should retain only these root model settings',
+    'model = "test-model"',
+    'model_reasoning_effort = "high"',
+    'service_tier = "priority"',
+    'unrelated_root_setting = "must-not-copy"',
+    '',
+    '[mcp_servers.osmosis]',
+    'command = "node"',
+    'args = ["server.js"]',
+    '',
+    '[plugins]',
+    'enabled = true',
+    '',
+    '[hooks]',
+    'notify = "must-not-copy"',
+    '',
+    '[notifications]',
+    'enabled = true',
+    '',
+    '[projects."/private/project"]',
+    'trust_level = "trusted"',
+    '',
+  ].join('\n');
+  const expectedChildConfig = [
+    'model = "test-model"',
+    'model_reasoning_effort = "high"',
+    'service_tier = "priority"',
+    '',
+  ].join('\n');
   await fs.mkdir(realCodexHome);
   await Promise.all([
     fs.writeFile(path.join(realCodexHome, 'auth.json'), authContents),
@@ -113,9 +194,18 @@ test('the Codex generator receives a fresh isolated CODEX_HOME and ambient-ignor
   assert.equal(card.concept_id, 'http');
   assert.equal(captured.codexHomeExists, true);
   assert.equal(captured.marker, '1');
+  assert.equal(captured.generatorChild, '1');
   assert.equal(captured.stdinState, 'ended');
+  assert.equal(captured.cwd.includes('generator-workdir'), true);
+  assert.equal(captured.args.includes('--cd'), true);
+  assert.equal(captured.args.includes('--ignore-rules'), true);
   assert.deepEqual(captured.files.auth, { exists: true, content: authContents, isSymbolicLink: false });
-  assert.deepEqual(captured.files.config, { exists: true, content: configContents, isSymbolicLink: false });
+  assert.deepEqual(captured.files.config, { exists: true, content: expectedChildConfig, isSymbolicLink: false });
+  assert.equal(captured.files.config.content.includes('mcp_servers'), false);
+  assert.equal(captured.files.config.content.includes('plugins'), false);
+  assert.equal(captured.files.config.content.includes('hooks'), false);
+  assert.equal(captured.files.config.content.includes('notifications'), false);
+  assert.equal(captured.files.config.content.includes('private/project'), false);
   assert.notEqual(captured.codexHome, process.env.CODEX_HOME);
   assert.notEqual(captured.codexHome, realCodexHome);
   assert.match(captured.codexHome, /osmosis-codex-.+codex-home$/);
@@ -160,10 +250,90 @@ test('the isolated Codex home leaves absent auth and config files absent', async
   const captured = JSON.parse(await fs.readFile(capturePath, 'utf8'));
   assert.equal(card.concept_id, 'http');
   assert.equal(captured.codexHomeExists, true);
+  assert.equal(captured.generatorChild, '1');
   assert.equal(captured.stdinState, 'ended');
   assert.deepEqual(captured.files.auth, { exists: false, content: null, isSymbolicLink: false });
   assert.deepEqual(captured.files.config, { exists: false, content: null, isSymbolicLink: false });
   await assert.rejects(fs.access(captured.codexHome), { code: 'ENOENT' });
+});
+
+test('the real provider child pipeline strips a sentinel MCP server before a Codex-style loader can launch it', async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'osmosis-provider-sentinel-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const commandPath = path.join(directory, 'codex-config-probe.js');
+  const capturePath = path.join(directory, 'child-environment.json');
+  const sentinelPath = path.join(directory, 'sentinel-started');
+  const realCodexHome = path.join(directory, 'real-codex-home');
+  await fs.mkdir(realCodexHome);
+  await Promise.all([
+    fs.writeFile(path.join(realCodexHome, 'auth.json'), '{"token":"test-only"}\n'),
+    fs.writeFile(
+      path.join(realCodexHome, 'config.toml'),
+      [
+        'model = "test-model"',
+        '',
+        '[mcp_servers.sentinel]',
+        'command = "node"',
+        'args = ["/this/must/never/run.js"]',
+        '',
+        '[hooks]',
+        'post_tool_use = "also-must-not-copy"',
+        '',
+      ].join('\n'),
+    ),
+    fs.writeFile(commandPath, sentinelAwareCodexScript(), { mode: 0o755 }),
+  ]);
+
+  const previousCapturePath = process.env.OSMOSIS_PROVIDER_CAPTURE_PATH;
+  const previousSentinelPath = process.env.OSMOSIS_PROVIDER_SENTINEL_PATH;
+  process.env.OSMOSIS_PROVIDER_CAPTURE_PATH = capturePath;
+  process.env.OSMOSIS_PROVIDER_SENTINEL_PATH = sentinelPath;
+  t.after(() => {
+    if (previousCapturePath === undefined) delete process.env.OSMOSIS_PROVIDER_CAPTURE_PATH;
+    else process.env.OSMOSIS_PROVIDER_CAPTURE_PATH = previousCapturePath;
+    if (previousSentinelPath === undefined) delete process.env.OSMOSIS_PROVIDER_SENTINEL_PATH;
+    else process.env.OSMOSIS_PROVIDER_SENTINEL_PATH = previousSentinelPath;
+  });
+
+  const provider = createProvider({
+    codexHome: realCodexHome,
+    codexCommand: commandPath,
+    codexTimeoutMs: 5_000,
+    cwd: directory,
+    provider: 'codex',
+  });
+  const card = await provider.generateCard({
+    concepts: [{ concept_id: 'http', concept_name: 'HTTP', parent_id: 'data' }],
+    masteredConceptIds: [],
+    report: { task: 'Observed work', what_i_did: 'Observed HTTP.', stack_hints: ['HTTP'], source: 'observed' },
+  });
+  provider.close();
+
+  const captured = JSON.parse(await fs.readFile(capturePath, 'utf8'));
+  assert.equal(card.concept_id, 'http');
+  assert.equal(captured.config, 'model = "test-model"\n');
+  assert.equal(captured.config.includes('mcp_servers'), false);
+  assert.equal(captured.config.includes('sentinel'), false);
+  assert.equal(captured.config.includes('hooks'), false);
+  assert.equal(captured.generatorChild, '1');
+  assert.equal(captured.cwd.includes('generator-workdir'), true);
+  await assert.rejects(fs.access(sentinelPath), { code: 'ENOENT' });
+});
+
+test('the generator-child guard makes server.js exit before it starts MCP or HTTP work', async () => {
+  const result = await runNodeProcess(process.execPath, [SERVER_PATH], {
+    env: {
+      ...process.env,
+      [GENERATOR_CHILD_ENV]: '1',
+      OSMOSIS_PORT: '0',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  assert.equal(result.code, 0);
+  assert.equal(result.signal, null);
+  assert.equal(result.stdout, '');
+  assert.equal(result.stderr, '');
 });
 
 test('generator rollout activity stays outside the real Ambient Watch session store', async (t) => {

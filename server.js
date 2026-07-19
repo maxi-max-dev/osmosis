@@ -90,8 +90,11 @@ async function main() {
   const config = getConfig();
   applyProjectIdentity(config, await resolveProjectIdentity(config.cwd));
   const hub = new SseHub();
-  const broker = createBroker({ config, hub, getBaseUrl: () => primaryBaseUrl(config) });
-  await broker.initialize();
+  // A broker is deliberately absent until this process owns the HTTP port.
+  // Constructing/initializing it before that decision hydrates channels,
+  // starts providers, and can write migrations from every MCP relay.
+  let broker = null;
+  let httpHandler = null;
 
   let reportDelivery = 'starting';
   let pipelineReady = false;
@@ -117,6 +120,10 @@ async function main() {
   }
 
   function acceptAgentReport(report) {
+    if (!broker) {
+      queueReport(queuedLocalReports, report, 'dropped a report before the HTTP owner initialized its local pipeline');
+      return;
+    }
     void broker.acceptLocalReport(report).catch((error) =>
       log('could not accept an agent report in the local broker', error && error.message ? error.message : error),
     );
@@ -219,7 +226,7 @@ async function main() {
   // MCP payloads remain the frozen three-key schema until they pass through
   // the primary. A loser never sends a cwd or any extra routing field.
   function acceptMcpReport(report) {
-    if (reportDelivery === 'starting') {
+    if (reportDelivery === 'starting' || reportDelivery === 'owner-starting') {
       queueReport(queuedStartupReports, report, 'dropped a report before delivery mode was known');
       return;
     }
@@ -232,7 +239,7 @@ async function main() {
   }
 
   const inlineCardHtml = createRelayInlineCardResolver({
-    broker,
+    getBroker: () => broker,
     getBaseUrl: () => primaryBaseUrl(config),
     getDelivery: () => reportDelivery,
     getRelayIdentity: () => relayIdentity,
@@ -242,22 +249,13 @@ async function main() {
     return primaryBaseUrl(config);
   }
 
-  const handler = createHttpHandler({
-    answerCard: (projectId, answer) => broker.answer(projectId, answer),
-    broker,
-    config,
-    hub,
-    initialEvents: () => broker.initialEvents(),
-    inlineCardHtml,
-    // First activation may happen after the server booted, so schedule the
-    // same gentle starter timer used at boot rather than bypassing the Studio
-    // with an immediate card.
-    onActivated: () => startStarterTimer(),
-    recentReports: () => broker.recentReports(),
-    snapshot: () => ({ cards: [], strengths: {}, tree: { meta: {}, nodes: [] } }),
-  });
   const server = http.createServer((request, response) => {
-    void handler(request, response);
+    if (!httpHandler) {
+      response.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+      response.end('Osmosis is reconnecting its local wall.');
+      return;
+    }
+    void httpHandler(request, response);
   });
   const mcp = createMcpServer({
     getInlineAnswerOrigin: inlineAnswerOrigin,
@@ -271,7 +269,7 @@ async function main() {
   }
 
   function startAmbientWatch() {
-    if (!canRunAmbientWatch() || ambientWatcher) {
+    if (!broker || !canRunAmbientWatch() || ambientWatcher) {
       return;
     }
     try {
@@ -291,7 +289,8 @@ async function main() {
 
   function startStarterTimer() {
     if (
-      !httpEnabled
+      !broker
+      || !httpEnabled
       || starterTimer
       || config.mode !== 'live'
       || config.provider !== 'none'
@@ -307,7 +306,7 @@ async function main() {
   }
 
   async function pushStarterCard() {
-    if (broker.activation()?.carry !== true || broker.settingsStore?.isPaused?.()) {
+    if (!broker || broker.activation()?.carry !== true || broker.settingsStore?.isPaused?.()) {
       return;
     }
     const channel = await broker.ensureChannel();
@@ -346,14 +345,14 @@ async function main() {
   }
 
   async function becomePrimary() {
-    if (httpEnabled || shuttingDown) {
+    if (httpEnabled || shuttingDown || broker) {
       return;
     }
-    const takingOverFromRelay = reportDelivery === 'relay';
     // Delivery changes first: reports arriving while disk state refreshes are
     // retained locally instead of relayed to an owner that no longer exists.
-    reportDelivery = 'primary';
-    httpEnabled = true;
+    // The exclusive owner must finish broker hydration/reconciliation before
+    // any one of those reports can start provider work.
+    reportDelivery = 'owner-starting';
     pipelineReady = false;
     stopPortRetry();
     stopRelayRegistrationRetry();
@@ -362,17 +361,40 @@ async function main() {
       config.port = address.port;
     }
     log(`HTTP listening on http://${config.host}:${config.port}`, `cwd=${config.cwd}`);
-    if (takingOverFromRelay) {
-      try {
-        await broker.reloadHydrated();
-      } catch (error) {
-        log('could not reconcile broker state after HTTP takeover', error && error.message ? error.message : error);
-      }
+    const ownerBroker = createBroker({ config, hub, getBaseUrl: () => primaryBaseUrl(config) });
+    try {
+      // This is the one and only path that can load settings, hydrate a
+      // channel, reconcile ledgers, or wake a persisted Studio candidate.
+      await ownerBroker.startOwner();
+    } catch (error) {
+      ownerBroker.close();
+      throw error;
     }
     if (shuttingDown) {
+      ownerBroker.close();
       return;
     }
+    broker = ownerBroker;
+    httpHandler = createHttpHandler({
+      answerCard: (projectId, answer) => broker.answer(projectId, answer),
+      broker,
+      config,
+      hub,
+      initialEvents: () => broker.initialEvents(),
+      inlineCardHtml,
+      // First activation may happen after the server booted, so schedule the
+      // same gentle starter timer used at boot rather than bypassing the Studio
+      // with an immediate card.
+      onActivated: () => startStarterTimer(),
+      recentReports: () => broker.recentReports(),
+      snapshot: () => ({ cards: [], strengths: {}, tree: { meta: {}, nodes: [] } }),
+    });
+    httpEnabled = true;
+    reportDelivery = 'primary';
     pipelineReady = true;
+    for (const report of queuedStartupReports.splice(0)) {
+      acceptLocalAgentReport(report);
+    }
     for (const report of queuedRelayReports.splice(0)) {
       acceptLocalAgentReport(report);
     }
@@ -391,7 +413,18 @@ async function main() {
     try {
       const acquired = await listen(server, config.port, config.host);
       if (acquired) {
-        await becomePrimary();
+        try {
+          await becomePrimary();
+        } catch (error) {
+          // We own this listener, so never relabel this process as a relay
+          // while it is still occupying the port. Release it before the next
+          // bounded retry; otherwise our own EADDRINUSE would deadlock every
+          // future owner attempt after a transient startup failure.
+          await new Promise((resolve) => server.close(() => resolve()));
+          reportDelivery = 'starting';
+          log('could not initialize the exclusive HTTP owner', error && error.message ? error.message : error);
+          startPortRetry();
+        }
         return;
       }
       reportDelivery = 'relay';
@@ -426,9 +459,9 @@ async function main() {
       starterTimer = null;
     }
     ambientWatcher?.stop();
-    broker.close();
+    broker?.close();
     hub.close();
-    if (httpEnabled) {
+    if (server.listening) {
       server.close(() => process.exit(0));
       server.closeAllConnections?.();
     } else {
@@ -442,7 +475,12 @@ async function main() {
   process.once('SIGTERM', () => shutdown('SIGTERM'));
 }
 
-main().catch((error) => {
-  log('fatal startup error', error && error.stack ? error.stack : error);
-  process.exitCode = 1;
-});
+// A Codex generator gets a disposable CODEX_HOME and this explicit guard.
+// If a malformed external config ever launches Osmosis anyway, it must be a
+// harmless no-op rather than recursively starting MCP, a broker, or a wall.
+if (process.env.OSMOSIS_GENERATOR_CHILD !== '1') {
+  main().catch((error) => {
+    log('fatal startup error', error && error.stack ? error.stack : error);
+    process.exitCode = 1;
+  });
+}

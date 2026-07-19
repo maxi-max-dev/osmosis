@@ -107,6 +107,13 @@ test('Studio keeps an answered Now card stable while a ready buffer lights Next,
   assert.equal(JSON.stringify(readyProjection).includes('Hidden question 2?'), false);
   assert.equal(JSON.stringify(snapshotFor(state)).includes('Hidden question 2?'), false);
   assert.deepEqual(events.filter((event) => event.type === 'card').map((event) => event.payload.card_id), ['card-1']);
+  assert.equal(ledger.some((entry) => (
+    entry.card_id === 'card-2'
+      && entry.event === 'buffered'
+      && entry.reason === 'next-ready'
+      && entry.state === 'waiting'
+  )), true, 'a hidden Next card is traceable as buffered work, not a visible delivery');
+  assert.equal(ledger.some((entry) => entry.card_id === 'card-2' && entry.event === 'delivery'), false);
 
   const advanced = await studio.next();
   assert.deepEqual({ advanced: advanced.advanced, state: advanced.state }, { advanced: true, state: 'advanced' });

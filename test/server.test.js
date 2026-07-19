@@ -430,6 +430,28 @@ async function writeSequencedCodexShim(directory) {
   return shimPath;
 }
 
+async function writeBlockedCountingCodexShim(directory) {
+  const shimPath = path.join(directory, 'blocked-counting-fake-codex.js');
+  const invocationLogPath = path.join(directory, 'blocked-counting-fake-codex-invocations.jsonl');
+  const releasePath = path.join(directory, 'blocked-counting-fake-codex-release');
+  const tree = JSON.stringify({ nodes: codexTreeNodes() });
+  const card = JSON.stringify({
+    concept_id: 'http',
+    concept_name: 'HTTP',
+    lesson: 'HTTP carries a request from your app to a server and brings a response back, like a labeled envelope travelling between two places.',
+    question: 'What does HTTP help your app do?',
+    options: ['Send a request and receive a response.', 'Draw every screen pixel.', 'Store passwords in a browser tab.'],
+    correct_index: 0,
+    explanation: 'HTTP carries a request to a server and brings a response back.',
+  });
+  await fs.writeFile(
+    shimPath,
+    `#!/usr/bin/env node\n'use strict';\nconst fs = require('node:fs');\nconst args = process.argv.slice(2);\nconst outputPath = args[args.indexOf('--output-last-message') + 1];\nconst schemaPath = args[args.indexOf('--output-schema') + 1];\nconst tree = ${JSON.stringify(tree)};\nconst card = ${JSON.stringify(card)};\nconst invocationLogPath = ${JSON.stringify(invocationLogPath)};\nconst releasePath = ${JSON.stringify(releasePath)};\nif (schemaPath.endsWith('tree-output.schema.json')) {\n  fs.writeFileSync(outputPath, tree);\n  process.stdout.write(tree);\n} else {\n  fs.appendFileSync(invocationLogPath, JSON.stringify({ pid: process.pid, at: Date.now() }) + '\\n');\n  const finish = () => {\n    if (!fs.existsSync(releasePath)) {\n      setTimeout(finish, 10);\n      return;\n    }\n    fs.writeFileSync(outputPath, card);\n    process.stdout.write(card);\n  };\n  finish();\n}\n`,
+    { mode: 0o755 },
+  );
+  return { invocationLogPath, releasePath, shimPath };
+}
+
 async function writeFailingCodexShim(directory) {
   const shimPath = path.join(directory, 'failing-codex.js');
   await fs.writeFile(
@@ -882,6 +904,168 @@ test('a same-project port takeover reloads cards and mastery before writing agai
   assert.equal(cards.cards.length, 2);
   assert.equal(profile['feedback-loop'].strength, 2);
   assert.equal(profile['feedback-loop'].seen, 2);
+});
+
+test('one HTTP owner exclusively resumes a persisted Studio generation while two same-project relays stay thin across takeover', { timeout: 20_000 }, async (t) => {
+  const cleanup = createTestCleanup(t);
+  const cwd = await temporaryProject(cleanup);
+  const identity = await resolveProjectIdentity(cwd);
+  const codexShim = await writeBlockedCountingCodexShim(cwd);
+  const profileDir = path.join(cwd, '.test-profile');
+  const reportId = 'realtime-persisted-inflight-report';
+  const now = '2026-07-19T00:00:00.000Z';
+  const persistedCandidate = {
+    candidate_id: 'realtime-persisted-inflight-candidate',
+    created_at: now,
+    updated_at: now,
+    report: {
+      report_id: reportId,
+      source: 'agent',
+      stack_hints: ['HTTP', 'Node.js'],
+      task: 'Persisted provider work',
+      what_i_did: 'A previous owner was interrupted while preparing the next HTTP lesson.',
+    },
+    report_ids: [reportId],
+  };
+  const answeredNow = {
+    card_id: 'realtime-answered-now',
+    created_at: now,
+    concept_id: `${identity.project_id}:json`,
+    concept_name: 'JSON data',
+    lesson: 'An earlier lesson remains visible until the learner chooses Next.',
+    question: 'Which lesson is still on screen?',
+    options: ['The earlier lesson.', 'A hidden future lesson.', 'No lesson at all.'],
+    correct_index: 0,
+    explanation: 'The learner keeps the answered current lesson until choosing Next.',
+    source: {
+      kind: 'agent',
+      report_id: 'realtime-prior-report',
+      task: 'Earlier lesson',
+      what_i_did: 'Delivered an earlier Studio question.',
+    },
+    state: { answered: true, chosen_index: 1, correct: false },
+  };
+
+  // This simulates a process crash after the Studio durably recorded the
+  // source signal but before the provider request had settled. Hydration must
+  // move it back into a candidate only in the port-owning process.
+  await fs.mkdir(path.join(cwd, '.osmosis'), { recursive: true });
+  await fs.writeFile(
+    path.join(cwd, '.osmosis', 'cards.json'),
+    `${JSON.stringify({
+      cards: [answeredNow],
+      studio: {
+        version: 2,
+        current_card_id: answeredNow.card_id,
+        ready_card: null,
+        candidates: [],
+        generation: {
+          candidate: persistedCandidate,
+          in_flight: true,
+          started_at: now,
+        },
+        last_unsolicited_delivery_at: null,
+      },
+    }, null, 2)}\n`,
+  );
+  // Supplying a legacy tree avoids a tree-provider invocation; the blocked
+  // shim below therefore measures exactly the one resumed card request.
+  await fs.writeFile(
+    path.join(cwd, '.osmosis', 'tree.json'),
+    `${JSON.stringify({ meta: {}, nodes: codexTreeNodes() }, null, 2)}\n`,
+  );
+  await fs.mkdir(path.join(profileDir, 'ledger'), { recursive: true });
+  await fs.writeFile(
+    path.join(profileDir, 'ledger', `${identity.project_id}.jsonl`),
+    `${JSON.stringify({
+      ts: now,
+      project_id: identity.project_id,
+      event: 'accept',
+      report_id: reportId,
+      source: 'agent',
+      state: 'waiting',
+    })}\n`,
+  );
+
+  const ownerOptions = {
+    cwd,
+    extraEnv: {
+      OSMOSIS_CODEX_COMMAND: codexShim.shimPath,
+      OSMOSIS_PORT_RETRY_MS: '50',
+      OSMOSIS_PROVIDER: 'codex',
+      OSMOSIS_TEMPLATE_DELAY_MS: '60000',
+    },
+  };
+  const { runner: owner, port } = await startHttpServer(cleanup, ownerOptions);
+  const invocationCount = async () => {
+    try {
+      return (await fs.readFile(codexShim.invocationLogPath, 'utf8')).split('\n').filter(Boolean).length;
+    } catch (error) {
+      if (error?.code === 'ENOENT') return 0;
+      throw error;
+    }
+  };
+  await waitFor(() => invocationCount().then((count) => count === 1), 'the owner to begin its resumed provider request');
+
+  // Keep the owner request paused while both port losers are already alive.
+  // If either loser hydrates/pumps local Studio state, it will invoke this
+  // shim too, making the regression fail before we release any result.
+  const relayA = startTrackedServer(cleanup, { ...ownerOptions, port });
+  const relayB = startTrackedServer(cleanup, { ...ownerOptions, port });
+  await Promise.all([
+    waitFor(() => relayA.stderr().includes('HTTP disabled'), 'the first thin same-project relay'),
+    waitFor(() => relayB.stderr().includes('HTTP disabled'), 'the second thin same-project relay'),
+  ]);
+  await delay(250);
+  assert.equal(await invocationCount(), 1, 'only the port owner starts the persisted provider chain while both relays are live');
+  await fs.writeFile(codexShim.releasePath, 'release\n');
+
+  const bufferedState = await waitFor(async () => {
+    const document = JSON.parse(await fs.readFile(path.join(cwd, '.osmosis', 'cards.json'), 'utf8'));
+    return document.studio?.ready_card?.source?.report_id === reportId ? document : null;
+  }, 'the single resumed hidden Next buffer');
+  const bufferedCard = bufferedState.studio.ready_card;
+  assert.equal(bufferedState.cards.some((card) => card.card_id === bufferedCard.card_id), false, 'the hidden card has one durable owner record');
+  assert.equal(bufferedState.studio.current_card_id, answeredNow.card_id, 'the persisted answered Now card was not replaced by a relay');
+
+  const initialActivity = await waitFor(async () => {
+    const response = await fetch(`http://127.0.0.1:${port}/ledger?project=${encodeURIComponent(identity.project_id)}&limit=100`);
+    const body = await response.json();
+    return body.entries.some((entry) => entry.card_id === bufferedCard.card_id && entry.event === 'buffered') ? body.entries : null;
+  }, 'the hidden buffer ledger trace');
+  const bufferedEntries = initialActivity.filter((entry) => entry.card_id === bufferedCard.card_id);
+  assert.equal(
+    bufferedEntries.filter((entry) => entry.event === 'buffered' && entry.state === 'waiting').length,
+    1,
+    'exactly one owner writes the hidden-buffer transition',
+  );
+  assert.equal(bufferedEntries.some((entry) => entry.event === 'delivery' && entry.state === 'delivered'), false);
+  assert.equal(
+    initialActivity.some((entry) => entry.report_id === reportId && entry.event === 'reconcile' && entry.message === 'lost at restart'),
+    false,
+    'exclusive reconciliation retains the durable in-flight candidate',
+  );
+
+  await stopServer(owner);
+  const takeover = await waitFor(() => {
+    const contenders = [relayA, relayB].filter((runner) => listeningPort(runner) === port);
+    return contenders.length === 1 ? contenders[0] : null;
+  }, 'exactly one relay to acquire the released HTTP port');
+  await waitFor(() => health(port), 'the takeover owner health endpoint');
+  await delay(150);
+
+  assert.equal(await invocationCount(), 1, 'a takeover does not restart a completed provider chain behind its ready buffer');
+  const afterTakeover = JSON.parse(await fs.readFile(path.join(cwd, '.osmosis', 'cards.json'), 'utf8'));
+  assert.equal(afterTakeover.studio?.ready_card?.card_id, bufferedCard.card_id, 'the winner retained the one hidden card');
+  assert.equal(afterTakeover.studio?.current_card_id, answeredNow.card_id);
+  const takeoverActivityResponse = await fetch(`http://127.0.0.1:${port}/ledger?project=${encodeURIComponent(identity.project_id)}&limit=100`);
+  const takeoverActivity = (await takeoverActivityResponse.json()).entries;
+  assert.equal(
+    takeoverActivity.some((entry) => entry.report_id === reportId && entry.event === 'reconcile' && entry.message === 'lost at restart'),
+    false,
+    'the new exclusive owner does not falsely reconcile its ready buffer as lost',
+  );
+  assert.ok(takeover.stderr().includes(`HTTP listening on http://127.0.0.1:${port}`));
 });
 
 test('Ambient Watch runs only in the HTTP-owning server instance', { timeout: 12_000 }, async (t) => {
@@ -1364,7 +1548,16 @@ test('a mono-concept mastered ready card is honestly suppressed instead of leavi
       ? records
       : null;
   }, 'the terminal mastered ledger trace for the cleared buffer');
-  assert.equal(activity.some((entry) => entry.event === 'delivery' && entry.state === 'delivered'), true);
+  assert.equal(
+    activity.some((entry) => entry.event === 'delivery' && entry.state === 'delivered'),
+    false,
+    'a hidden ready card was buffered, never visibly delivered before mastery suppressed it',
+  );
+  assert.equal(
+    activity.some((entry) => entry.event === 'buffered' && entry.state === 'waiting'),
+    true,
+    'the ledger distinguishes a hidden Next buffer from a visible lesson delivery',
+  );
   const final = activity.at(-1);
   assert.deepEqual(
     { event: final.event, reason: final.reason, state: final.state },

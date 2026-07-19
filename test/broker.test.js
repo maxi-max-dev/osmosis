@@ -22,11 +22,11 @@ async function temporaryDirectory(t) {
   return directory;
 }
 
-function studioConfig(root, { cwd = root, globalReportQueueCap = 5 } = {}) {
+function studioConfig(root, { ambientEnabled = false, cwd = root, globalReportQueueCap = 5 } = {}) {
   const profileDir = path.join(root, 'profile');
   const stateDir = path.join(cwd, '.osmosis');
   return {
-    ambientEnabled: false,
+    ambientEnabled,
     cardPacingMs: 1,
     codexHome: path.join(root, 'codex'),
     cwd,
@@ -92,7 +92,7 @@ test('the broker keeps project channels lazy, dual-emits snapshots, and routes r
   };
   const hub = { broadcast(type, payload) { events.push({ type, payload }); } };
   const broker = createBroker({ config, hub });
-  await broker.initialize();
+  await broker.startOwner();
   const defaultId = broker.defaultProjectId;
   assert.ok(defaultId);
 
@@ -380,8 +380,13 @@ test('a durable Studio candidate resumes after the broker hydrates it on restart
   const brokerAfterRestart = createBroker({ config: studioConfig(root), hub: { broadcast() {} } });
   t.after(() => brokerAfterRestart.close());
   await brokerAfterRestart.initialize();
-  // Channel hydration schedules resume work in a microtask so a cold broker
-  // never blocks its first snapshot. Yield once before observing that work.
+  const passivelyHydratedChannel = await brokerAfterRestart.ensureChannel(projectId);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(passivelyHydratedChannel.state.cards.length, 0, 'a port loser can hydrate without running a provider');
+  assert.equal(passivelyHydratedChannel.state.studio.candidates.length, 1, 'the durable candidate stays intact until exclusive ownership');
+  await brokerAfterRestart.startOwner();
+  // Durable candidates resume only after the exclusive owner lifecycle, not
+  // merely because a passive broker hydrated a project state file.
   await new Promise((resolve) => setImmediate(resolve));
   const resumedChannel = await brokerAfterRestart.ensureChannel(projectId);
   await waitFor(
@@ -439,6 +444,104 @@ test('pre-Studio background registry summaries migrate to Carry instead of activ
   assert.equal(Object.hasOwn(registration, 'activation_pending'), false, 'the relay takes the normal carried-project handshake');
 });
 
+test('an Ambient-enabled owner preserves legacy carried capture and respects a later explicit reports-only choice', async (t) => {
+  const root = await temporaryDirectory(t);
+  const projectA = path.join(root, 'new-project');
+  const projectB = path.join(root, 'legacy-ambient-project');
+  const profileDir = path.join(root, 'profile');
+  await Promise.all([fs.mkdir(projectA), fs.mkdir(projectB), fs.mkdir(profileDir, { recursive: true })]);
+  const identityB = await resolveProjectIdentity(projectB);
+  await fs.writeFile(
+    path.join(profileDir, 'projects.json'),
+    `${JSON.stringify({
+      version: 1,
+      projects: [{
+        archived: false,
+        last_activity_at: '2026-07-19T00:00:00.000Z',
+        name: 'Legacy ambient project',
+        project_id: identityB.project_id,
+        root: identityB.root,
+        unanswered_count: 0,
+      }],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+  // This is the bad state created by the old migration: the learner was
+  // already carrying the project while this machine had Ambient enabled, but
+  // capture was silently forced to reports-only.
+  await fs.writeFile(
+    path.join(profileDir, 'settings.json'),
+    `${JSON.stringify({
+      global_learning: 'on',
+      lesson_locale: 'en',
+      pending_activation: {},
+      projects: {
+        [identityB.project_id]: {
+          auto_advance: false,
+          capture_mode: 'agent-reports-only',
+          carry: true,
+        },
+      },
+      version: 1,
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const config = studioConfig(root, { ambientEnabled: true, cwd: projectA });
+  const firstOwner = createBroker({ config, hub: { broadcast() {} } });
+  t.after(() => firstOwner.close());
+  await firstOwner.startOwner();
+
+  const expectedNotice = [{
+    code: 'ambient-watch-preserved',
+    message: 'Ambient Watch preserved — review settings',
+    project_id: identityB.project_id,
+  }];
+  const firstSettings = await firstOwner.getSettings();
+  assert.equal(firstSettings.projects[identityB.project_id].capture_mode, 'experimental-ambient');
+  assert.deepEqual(firstSettings.notices, expectedNotice);
+  assert.equal(Object.hasOwn(firstSettings, 'migration'), false, 'migration bookkeeping stays private to disk');
+  const firstV2 = (await firstOwner.initialEvents()).at(-1).payload;
+  assert.deepEqual(firstV2.notices, expectedNotice, 'the first Studio snapshot carries the non-blocking notice');
+  assert.equal(firstV2.settings.projects[identityB.project_id].capture_mode, 'experimental-ambient');
+  assert.deepEqual(await firstOwner.resolveAmbientProject(projectB), {
+    project_id: identityB.project_id,
+    root: identityB.root,
+  }, 'the preserved project is available to the experimental ambient route');
+
+  const migratedOnDisk = JSON.parse(await fs.readFile(path.join(profileDir, 'settings.json'), 'utf8'));
+  assert.equal(migratedOnDisk.projects[identityB.project_id].capture_mode, 'experimental-ambient');
+  assert.equal(migratedOnDisk.migration.ambient_capture_reviewed[identityB.project_id], true);
+  firstOwner.close();
+
+  const restartedOwner = createBroker({ config: studioConfig(root, { ambientEnabled: true, cwd: projectA }), hub: { broadcast() {} } });
+  t.after(() => restartedOwner.close());
+  await restartedOwner.startOwner();
+  const restartedSettings = await restartedOwner.getSettings();
+  assert.equal(restartedSettings.projects[identityB.project_id].capture_mode, 'experimental-ambient', 'restart is idempotent');
+  assert.deepEqual(restartedSettings.notices, [], 'the preservation notice is emitted only for the migration owner epoch');
+
+  // A later settings action is an explicit learner decision, not another
+  // legacy entry. A later Ambient-enabled owner must keep it untouched.
+  await restartedOwner.activateProject(identityB.project_id, {
+    capture_mode: 'agent-reports-only',
+    carry: true,
+    lesson_locale: 'en',
+  });
+  assert.equal((await restartedOwner.getSettings()).projects[identityB.project_id].capture_mode, 'agent-reports-only');
+  restartedOwner.close();
+
+  const explicitChoiceOwner = createBroker({ config: studioConfig(root, { ambientEnabled: true, cwd: projectA }), hub: { broadcast() {} } });
+  t.after(() => explicitChoiceOwner.close());
+  await explicitChoiceOwner.startOwner();
+  assert.equal((await explicitChoiceOwner.getSettings()).projects[identityB.project_id].capture_mode, 'agent-reports-only');
+  assert.deepEqual(await explicitChoiceOwner.resolveAmbientProject(projectB), {
+    reason: 'ambient-not-enabled-for-project',
+    registered: false,
+    root: identityB.root,
+  }, 'an explicit reports-only choice remains outside Ambient Watch');
+});
+
 test('a Studio candidate rejected at the global ceiling resumes fairly when its slot frees', async (t) => {
   const root = await temporaryDirectory(t);
   const projectA = path.join(root, 'slot-holder-project');
@@ -454,7 +557,7 @@ test('a Studio candidate rejected at the global ceiling resumes fairly when its 
     broker.close();
   });
 
-  await broker.initialize();
+  await broker.startOwner();
   const projectAId = broker.defaultProjectId;
   await carryProject(broker, projectAId);
   const pendingB = await broker.register(projectB);

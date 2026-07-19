@@ -7,6 +7,7 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
+  ACTIVE_FILE_AGE_MS,
   createAmbientWatcher,
   dateDirectories,
   signalsFromEvent,
@@ -477,6 +478,141 @@ test('Ambient Watch reads a rollout created after startup from byte zero and res
   watcher.stop();
 });
 
+test('Ambient Watch resumes an idle rollout from its identity cursor without replaying history', async (t) => {
+  const { projectDir, sessionsDir } = await setup(t);
+  const clock = { value: Date.now() };
+  const reports = [];
+  const watcher = createAmbientWatcher(watcherOptions({
+    clock,
+    projectDir,
+    reports,
+    sessionsDir,
+    ambientEmitIntervalMs: 1,
+  }));
+
+  await watcher.poll();
+  const rollout = await createRollout(sessionsDir, clock.value, {
+    name: 'idle-cursor',
+    events: [execEvent('node first-pass.js', projectDir)],
+  });
+  await watcher.poll();
+  assert.equal(reports.length, 1);
+  assert.deepEqual(reports[0].stack_hints, ['node']);
+
+  // The file falls out of the active discovery window. Its complete-line
+  // cursor moves to a bounded identity-keyed tombstone instead of resetting
+  // to byte zero on the next write.
+  clock.value += ACTIVE_FILE_AGE_MS + 2;
+  await watcher.poll();
+  assert.deepEqual(watcher.getDebugState(), {
+    cursorTombstones: 1,
+    pendingSignals: 0,
+    trackedFiles: 0,
+  });
+
+  await appendEvents(rollout, clock.value, [execEvent('npm test', projectDir)]);
+  await watcher.poll();
+  assert.equal(reports.length, 2);
+  assert.deepEqual(reports[1].stack_hints, ['npm'], 'the old node event is not replayed');
+  assert.equal(watcher.getDebugState().cursorTombstones, 0);
+  watcher.stop();
+});
+
+test('Ambient Watch bounds cursor tombstones, evicts the oldest, and keeps partial records live', async (t) => {
+  const { projectDir, sessionsDir } = await setup(t);
+  const clock = { value: Date.now() };
+  const reports = [];
+  const watcher = createAmbientWatcher(watcherOptions({
+    clock,
+    projectDir,
+    reports,
+    sessionsDir,
+    ambientEmitIntervalMs: 1,
+    ambientMaxCursorTombstones: 2,
+  }));
+
+  await watcher.poll();
+  const first = await createRollout(sessionsDir, clock.value, {
+    name: 'tombstone-a',
+    events: [execEvent('node first.js', projectDir)],
+  });
+  await watcher.poll();
+  clock.value += 2;
+  const second = await createRollout(sessionsDir, clock.value, {
+    name: 'tombstone-b',
+    events: [execEvent('npm second.js', projectDir)],
+  });
+  await watcher.poll();
+  clock.value += 2;
+  const third = await createRollout(sessionsDir, clock.value, {
+    name: 'tombstone-c',
+    events: [execEvent('git third.js', projectDir)],
+  });
+  await watcher.poll();
+  assert.equal(reports.length, 3);
+
+  clock.value += ACTIVE_FILE_AGE_MS + 2;
+  await watcher.poll();
+  assert.deepEqual(watcher.getDebugState(), {
+    cursorTombstones: 2,
+    pendingSignals: 0,
+    trackedFiles: 0,
+  });
+
+  // The latest identities resume at their cursor. The oldest identity was
+  // evicted, so attaching it is intentionally the same as a new file.
+  await appendEvents(third, clock.value, [execEvent('git resumed.js', projectDir)]);
+  await watcher.poll();
+  assert.deepEqual(reports.at(-1).stack_hints, ['git']);
+
+  clock.value += 2;
+  await appendEvents(first, clock.value, [execEvent('npm resumed.js', projectDir)]);
+  await watcher.poll();
+  assert.deepEqual(reports.at(-1).stack_hints, ['node', 'npm']);
+
+  clock.value += 2;
+  await appendEvents(second, clock.value, [execEvent('git resumed.js', projectDir)]);
+  await watcher.poll();
+  assert.deepEqual(reports.at(-1).stack_hints, ['git'], 'the retained middle identity resumes without replay');
+  watcher.stop();
+
+  // A retained partial JSONL record cannot safely be represented by a byte
+  // cursor alone. It therefore remains live across the idle window and is
+  // completed exactly once when its newline arrives.
+  const partialReports = [];
+  const partialSessionsDir = path.join(path.dirname(sessionsDir), 'partial-tombstone-sessions');
+  const partialWatcher = createAmbientWatcher(watcherOptions({
+    clock,
+    projectDir,
+    reports: partialReports,
+    sessionsDir: partialSessionsDir,
+    ambientEmitIntervalMs: 1,
+  }));
+  await partialWatcher.poll();
+  const serialized = JSON.stringify(execEvent('node completed-after-idle.js', projectDir));
+  const partial = await createRollout(partialSessionsDir, clock.value, {
+    name: 'partial-tombstone',
+    raw: serialized.slice(0, 24),
+  });
+  await partialWatcher.poll();
+  assert.equal(partialWatcher.getDebugState().trackedFiles, 1);
+
+  clock.value += ACTIVE_FILE_AGE_MS + 2;
+  await partialWatcher.poll();
+  assert.deepEqual(partialWatcher.getDebugState(), {
+    cursorTombstones: 0,
+    pendingSignals: 0,
+    trackedFiles: 1,
+  });
+
+  await fs.appendFile(partial, serialized.slice(24) + '\n');
+  await fs.utimes(partial, new Date(clock.value), new Date(clock.value));
+  await partialWatcher.poll();
+  assert.equal(partialReports.length, 1);
+  assert.deepEqual(partialReports[0].stack_hints, ['node']);
+  partialWatcher.stop();
+});
+
 test('Ambient Watch bounds tracked files, polling bytes, lines, partial data, and pending signals', async (t) => {
   const { projectDir, sessionsDir } = await setup(t);
   const clock = { value: Date.now() };
@@ -646,7 +782,7 @@ test('Ambient Watch refuses record and replay modes even when an environment opt
     watcher.start();
     await watcher.poll();
     assert.equal(scheduled, 0);
-    assert.deepEqual(watcher.getDebugState(), { pendingSignals: 0, trackedFiles: 0 });
+    assert.deepEqual(watcher.getDebugState(), { cursorTombstones: 0, pendingSignals: 0, trackedFiles: 0 });
     watcher.stop();
   }
 });
