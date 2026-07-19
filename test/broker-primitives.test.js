@@ -258,3 +258,103 @@ test('profile lock waits for a live owner and recovers stale lockfiles', async (
   await assert.rejects(fs.stat(lockPath), { code: 'ENOENT' });
   assert.equal(store.strengths.recovered.strength, 2);
 });
+
+test('profile lock never evicts a live holder just because its lease is old', async (t) => {
+  const directory = await temporaryDirectory(t);
+  const lockPath = path.join(directory, 'profile.json.lock');
+  const liveRecord = {
+    pid: process.pid,
+    created_at: '2000-01-01T00:00:00.000Z',
+    token: 'live-owner-token',
+  };
+  await fs.writeFile(lockPath, `${JSON.stringify(liveRecord)}\n`, 'utf8');
+
+  let milliseconds = Date.parse('2026-07-19T00:00:00.000Z');
+  let livenessChecks = 0;
+  const lockOptions = {
+    lockPath,
+    now: () => milliseconds,
+    staleMs: 1,
+    retryMs: 1,
+    timeoutMs: 2,
+    sleepFn: async () => {
+      milliseconds += 1;
+    },
+    isProcessAlive(pid) {
+      assert.equal(pid, process.pid);
+      livenessChecks += 1;
+      return true;
+    },
+  };
+
+  assert.equal(await isLockStale(lockPath, lockOptions), false);
+  await assert.rejects(acquireProfileLock(lockOptions), { code: 'ELOCKED' });
+  assert.equal(livenessChecks > 0, true);
+  assert.deepEqual(JSON.parse(await fs.readFile(lockPath, 'utf8')), liveRecord);
+});
+
+test('profile lock reclaims a dead holder and restores a replacement that races stale recovery', async (t) => {
+  const directory = await temporaryDirectory(t);
+  const lockPath = path.join(directory, 'profile.json.lock');
+  const deadRecord = {
+    pid: 999999,
+    created_at: '2000-01-01T00:00:00.000Z',
+    token: 'dead-owner-token',
+  };
+  const now = () => Date.parse('2026-07-19T00:00:00.000Z');
+  const deadHolderOptions = {
+    lockPath,
+    now,
+    staleMs: 1,
+    retryMs: 1,
+    timeoutMs: 100,
+    isProcessAlive: () => false,
+  };
+
+  await fs.writeFile(lockPath, `${JSON.stringify(deadRecord)}\n`, 'utf8');
+  const recovered = await acquireProfileLock(deadHolderOptions);
+  assert.notEqual(recovered.record.token, deadRecord.token);
+  await recovered.release();
+  await assert.rejects(fs.stat(lockPath), { code: 'ENOENT' });
+
+  await fs.writeFile(lockPath, `${JSON.stringify(deadRecord)}\n`, 'utf8');
+  const racedReplacement = {
+    pid: process.pid,
+    created_at: '2000-01-01T00:00:00.000Z',
+    token: 'replacement-live-owner-token',
+  };
+  let raced = false;
+  const fsApi = Object.create(fs);
+  fsApi.rename = async (from, to) => {
+    if (!raced && from === lockPath && path.basename(to).includes('.reclaim.')) {
+      raced = true;
+      // Simulate a different writer installing a valid lock after our last
+      // read but before the stale-recovery rename. The implementation must
+      // detect the token mismatch and restore it without clobbering it.
+      await fs.unlink(from);
+      await fs.writeFile(from, `${JSON.stringify(racedReplacement)}\n`, 'utf8');
+    }
+    return fs.rename(from, to);
+  };
+
+  let milliseconds = now();
+  await assert.rejects(
+    acquireProfileLock({
+      ...deadHolderOptions,
+      fsApi,
+      now: () => milliseconds,
+      timeoutMs: 2,
+      sleepFn: async () => {
+        milliseconds += 1;
+      },
+      isProcessAlive(pid) {
+        return pid !== deadRecord.pid;
+      },
+    }),
+    { code: 'ELOCKED' },
+  );
+  assert.equal(raced, true);
+  assert.deepEqual(JSON.parse(await fs.readFile(lockPath, 'utf8')), racedReplacement);
+  const remaining = await fs.readdir(directory);
+  assert.equal(remaining.some((name) => name.includes('.reclaim.')), false);
+});

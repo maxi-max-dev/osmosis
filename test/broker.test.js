@@ -7,6 +7,7 @@ const path = require('node:path');
 const test = require('node:test');
 
 const { createBroker, createFairReportScheduler } = require('../lib/broker');
+const { selectableLeaves } = require('../lib/concepts');
 const { namespaceConceptId } = require('../lib/project-concepts');
 const { strengthFor } = require('../lib/mastery');
 
@@ -103,4 +104,163 @@ test('provider concepts are project-scoped while old unsalted mastery remains re
   assert.equal(namespaceConceptId('harbour-a-1234567890', 'feedback-loop'), 'feedback-loop');
   assert.equal(strengthFor({ 'animation-loop': { strength: 2 } }, scoped), 2);
   assert.equal(strengthFor({ [scoped]: { strength: 1 }, 'animation-loop': { strength: 2 } }, scoped), 1);
+});
+
+test('channel hydration namespaces a legacy tree while its unsalted mastery record remains readable', async (t) => {
+  const root = await temporaryDirectory(t);
+  const project = path.join(root, 'legacy-tree');
+  const stateDir = path.join(project, '.osmosis');
+  const profileDir = path.join(root, 'profile');
+  await fs.mkdir(stateDir, { recursive: true });
+  await fs.mkdir(profileDir, { recursive: true });
+  await fs.writeFile(
+    path.join(stateDir, 'tree.json'),
+    `${JSON.stringify({
+      meta: { surfaced_concept_ids: ['animation-loop', 'feedback-loop'] },
+      nodes: [
+        { concept_id: 'project-map', concept_name: 'Project map', parent_id: null },
+        { concept_id: 'http', concept_name: 'HTTP', parent_id: 'project-map' },
+        { concept_id: 'animation-loop', concept_name: 'Animation loop', parent_id: 'project-map' },
+        { concept_id: 'feedback-loop', concept_name: 'The feedback loop', parent_id: 'project-map' },
+      ],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+  await fs.writeFile(
+    path.join(profileDir, 'profile.json'),
+    `${JSON.stringify({ http: { name: 'HTTP', strength: 2, seen: 1, correct: 1 } }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const config = {
+    cardPacingMs: 1,
+    codexCommand: path.join(root, 'not-called-codex'),
+    codexHome: path.join(root, 'codex'),
+    codexTimeoutMs: 1_000,
+    cwd: project,
+    globalReportQueueCap: 5,
+    host: '127.0.0.1',
+    mode: 'live',
+    port: 4321,
+    profileDir,
+    profilePath: path.join(profileDir, 'profile.json'),
+    provider: 'codex',
+    replayPath: path.join(stateDir, 'replay.json'),
+    stateDir,
+    templateDelayMs: 1,
+    treePath: path.join(stateDir, 'tree.json'),
+    unansweredCardCap: 5,
+  };
+  const broker = createBroker({ config, hub: { broadcast() {} } });
+  await broker.initialize();
+  const projectId = broker.defaultProjectId;
+  const channel = await broker.ensureChannel(projectId);
+  const scoped = (conceptId) => namespaceConceptId(projectId, conceptId);
+
+  assert.deepEqual(channel.state.tree.nodes.map((node) => node.concept_id), [
+    scoped('project-map'),
+    scoped('http'),
+    scoped('animation-loop'),
+    'feedback-loop',
+  ]);
+  assert.deepEqual(channel.state.tree.nodes.map((node) => node.parent_id), [
+    null,
+    scoped('project-map'),
+    scoped('project-map'),
+    scoped('project-map'),
+  ]);
+  assert.equal(channel.state.tree.meta.concept_namespace, projectId);
+  assert.deepEqual(channel.state.tree.meta.surfaced_concept_ids, [scoped('animation-loop'), 'feedback-loop']);
+  assert.equal(strengthFor(channel.state.strengths, scoped('http')), 2, 'old profile keys are a read-only compatibility path');
+  assert.equal(selectableLeaves(channel.state.tree, channel.state.strengths, []).some((node) => node.concept_id === scoped('http')), false);
+
+  // No Codex process is needed to prepare a card. The map proves a subsequent
+  // provider result using its local id will be written with the project salt.
+  const curriculum = await channel.curriculumService.prepare(report('legacy tree migration'));
+  assert.equal(curriculum.conceptIdMap.get('animation-loop'), scoped('animation-loop'));
+  assert.equal(curriculum.conceptIdMap.get('feedback-loop'), 'feedback-loop');
+
+  channel.provider.generateCard = async () => ({
+    concept_id: 'animation-loop',
+    concept_name: 'Animation loop',
+    lesson: 'The loop redraws the scene repeatedly so movement can appear smooth.',
+    question: 'What does the animation loop keep doing?',
+    options: ['Redraw the scene', 'Delete old files', 'Send email'],
+    correct_index: 0,
+    explanation: 'Each redraw is the next frame.',
+  });
+  assert.equal(await broker.acceptLocalReport(report('first scoped provider card'), projectId), true);
+  await broker.whenIdle();
+  assert.equal(channel.state.cards.at(-1).concept_id, scoped('animation-loop'));
+
+  const persisted = JSON.parse(await fs.readFile(path.join(stateDir, 'tree.json'), 'utf8'));
+  assert.deepEqual(persisted, channel.state.tree, 'the migration survives restart before any provider call');
+  broker.close();
+});
+
+test('a running broker periodically archives inactive background channels with a fake clock', async (t) => {
+  const root = await temporaryDirectory(t);
+  const projectA = path.join(root, 'active-project');
+  const projectB = path.join(root, 'quiet-project');
+  await Promise.all([fs.mkdir(projectA), fs.mkdir(projectB)]);
+  let milliseconds = Date.parse('2026-07-19T00:00:00.000Z');
+  let scheduledSweep = null;
+  let intervalHandle = null;
+  let timerWasUnrefed = false;
+  let clearedHandle = null;
+  const events = [];
+  const profileDir = path.join(root, 'profile');
+  const config = {
+    cardPacingMs: 1,
+    codexHome: path.join(root, 'codex'),
+    cwd: projectA,
+    globalReportQueueCap: 5,
+    host: '127.0.0.1',
+    mode: 'live',
+    port: 4321,
+    profileDir,
+    profilePath: path.join(profileDir, 'profile.json'),
+    projectArchiveAfterMs: 1_000,
+    projectArchiveSweepMs: 60,
+    provider: 'none',
+    replayPath: path.join(projectA, '.osmosis', 'replay.json'),
+    stateDir: path.join(projectA, '.osmosis'),
+    templateDelayMs: 60_000,
+    treePath: path.join(projectA, '.osmosis', 'tree.json'),
+    unansweredCardCap: 5,
+  };
+  const broker = createBroker({
+    archiveSweepMs: config.projectArchiveSweepMs,
+    clearIntervalFn(handle) {
+      clearedHandle = handle;
+    },
+    config,
+    hub: { broadcast(type, payload) { events.push({ payload, type }); } },
+    now: () => new Date(milliseconds).toISOString(),
+    setIntervalFn(callback, delay) {
+      assert.equal(delay, config.projectArchiveSweepMs);
+      scheduledSweep = callback;
+      intervalHandle = { unref() { timerWasUnrefed = true; } };
+      return intervalHandle;
+    },
+  });
+
+  await broker.initialize();
+  const registration = await broker.register(projectB);
+  assert.equal(broker.registry.getProject(registration.project_id).archived, false);
+  assert.equal(typeof scheduledSweep, 'function', 'initialization schedules a continuous archival sweep');
+  assert.equal(timerWasUnrefed, true, 'the wall lifecycle timer cannot hold the process open');
+
+  milliseconds += 1_001;
+  await scheduledSweep();
+  assert.equal(broker.registry.getProject(registration.project_id).archived, true);
+  assert.equal(broker.registry.getProject(broker.defaultProjectId).archived, false, 'the current project stays visible');
+  assert.equal(
+    events.some((event) => event.type === 'projects' && event.payload.projects.some((project) => project.project_id === registration.project_id && project.archived)),
+    true,
+    'the wall receives a fresh tab summary after the periodic sweep',
+  );
+
+  broker.close();
+  assert.equal(clearedHandle, intervalHandle, 'shutdown clears the archival timer');
 });

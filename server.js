@@ -104,6 +104,7 @@ async function main() {
   let binding = false;
   let httpEnabled = false;
   let portRetryTimer = null;
+  let relayRegistrationRetryTimer = null;
   let shuttingDown = false;
   let starterTimer = null;
 
@@ -146,6 +147,48 @@ async function main() {
     return registrationInFlight;
   }
 
+  function stopRelayRegistrationRetry() {
+    if (relayRegistrationRetryTimer) {
+      clearInterval(relayRegistrationRetryTimer);
+      relayRegistrationRetryTimer = null;
+    }
+  }
+
+  async function tryRelayRegistration() {
+    if (shuttingDown || reportDelivery !== 'relay' || relayIdentity) {
+      return;
+    }
+    try {
+      await ensureRelayRegistration();
+      // Registration is an ephemeral owner capability. Once it succeeds, the
+      // inline resolver can immediately route its first resource read to this
+      // project's channel; no MCP report needs to arrive first.
+      stopRelayRegistrationRetry();
+    } catch {
+      // A port owner can still be booting or be in the middle of a takeover.
+      // Keep this detached from MCP stdio and retry later without surfacing a
+      // transient local-wall failure to the coding agent.
+    }
+  }
+
+  function startRelayRegistrationRetry() {
+    if (shuttingDown || httpEnabled || reportDelivery !== 'relay' || relayIdentity) {
+      return;
+    }
+    // Entering relay mode must establish identity before the first queued
+    // report. This gives MCP Apps the right project channel from its first
+    // inline-card resource read as well.
+    void tryRelayRegistration();
+    if (relayRegistrationRetryTimer) {
+      return;
+    }
+    const retryMs = Number.isInteger(config.portRetryMs) && config.portRetryMs > 0 ? config.portRetryMs : 15_000;
+    relayRegistrationRetryTimer = setInterval(() => {
+      void tryRelayRegistration();
+    }, retryMs);
+    relayRegistrationRetryTimer.unref?.();
+  }
+
   async function flushRelayReports() {
     if (reportDelivery !== 'relay') {
       return;
@@ -167,6 +210,7 @@ async function main() {
         relayIdentity = null;
         queuedRelayReports.unshift(report);
         log('could not relay report to the HTTP-owning process', error && error.message ? error.message : error);
+        startRelayRegistrationRetry();
         return;
       }
     }
@@ -295,6 +339,7 @@ async function main() {
     httpEnabled = true;
     pipelineReady = false;
     stopPortRetry();
+    stopRelayRegistrationRetry();
     const address = server.address();
     if (address && typeof address === 'object') {
       config.port = address.port;
@@ -334,11 +379,13 @@ async function main() {
       }
       reportDelivery = 'relay';
       startPortRetry();
+      startRelayRegistrationRetry();
       void flushRelayReports();
     } catch (error) {
       reportDelivery = 'relay';
       log('could not retry the HTTP port', error && error.message ? error.message : error);
       startPortRetry();
+      startRelayRegistrationRetry();
     } finally {
       binding = false;
     }
@@ -356,6 +403,7 @@ async function main() {
   function shutdown(signal) {
     shuttingDown = true;
     stopPortRetry();
+    stopRelayRegistrationRetry();
     if (starterTimer) {
       clearTimeout(starterTimer);
       starterTimer = null;

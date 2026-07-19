@@ -512,6 +512,47 @@ test('an HTTP port loser continues serving MCP and relays its report to the prim
   assert.equal(reports.reports.at(-1).source, 'agent');
 });
 
+test('a port loser registers its relay project before its first MCP report', { timeout: 10_000 }, async (t) => {
+  const cleanup = createTestCleanup(t);
+  const primaryCwd = await temporaryProject(cleanup);
+  const relayCwd = await temporaryProject(cleanup);
+  const sharedProfile = await temporaryProject(cleanup);
+  const { port } = await startHttpServer(cleanup, {
+    cwd: primaryCwd,
+    extraEnv: { OSMOSIS_PROFILE_DIR: sharedProfile, OSMOSIS_TEMPLATE_DELAY_MS: '60000' },
+  });
+  const relay = startTrackedServer(cleanup, {
+    cwd: relayCwd,
+    port,
+    extraEnv: { OSMOSIS_PROFILE_DIR: sharedProfile, OSMOSIS_TEMPLATE_DELAY_MS: '60000' },
+  });
+  await waitFor(() => relay.stderr().includes('HTTP disabled'), 'the relay port guard');
+
+  // Do not write any MCP report. Registration is part of entering relay mode,
+  // so the broker knows which project an inline resource belongs to already.
+  const canonicalRelayCwd = await fs.realpath(relayCwd);
+  const project = await waitFor(async () => {
+    const response = await fetch(`http://127.0.0.1:${port}/projects`);
+    const body = await response.json();
+    return body.projects.find((candidate) => candidate.root === canonicalRelayCwd) || null;
+  }, 'the report-free relay registration');
+  assert.ok(project.project_id);
+
+  const reports = await fetch(`http://127.0.0.1:${port}/debug/reports?project=${encodeURIComponent(project.project_id)}`);
+  assert.deepEqual((await reports.json()).reports, []);
+
+  relay.child.stdin.write(
+    `${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'resources/read', params: { uri: 'ui://osmosis/card.html' } })}\n`,
+  );
+  await waitFor(() => relay.stdoutLines().length === 1, 'the pre-report relay inline resource');
+  const resource = JSON.parse(relay.stdoutLines()[0]);
+  assert.match(resource.result.contents[0].text, /data-osmosis-inline-card="pending"/);
+  assert.match(
+    resource.result.contents[0].text,
+    new RegExp(`/inline-card\\?project=${encodeURIComponent(project.project_id)}`),
+  );
+});
+
 test('the port owner brokers registered project channels with a token, lazy snapshot, and scoped answers', { timeout: 15_000 }, async (t) => {
   const cleanup = createTestCleanup(t);
   const primaryCwd = await temporaryProject(cleanup);
