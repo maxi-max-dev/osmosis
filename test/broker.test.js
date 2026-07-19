@@ -9,6 +9,7 @@ const test = require('node:test');
 const { createBroker, createFairReportScheduler } = require('../lib/broker');
 const { selectableLeaves } = require('../lib/concepts');
 const { namespaceConceptId } = require('../lib/project-concepts');
+const { resolveProjectIdentity } = require('../lib/project-identity');
 const { strengthFor } = require('../lib/mastery');
 
 function report(task) {
@@ -19,6 +20,49 @@ async function temporaryDirectory(t) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'osmosis-broker-test-'));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   return directory;
+}
+
+function studioConfig(root, { cwd = root, globalReportQueueCap = 5 } = {}) {
+  const profileDir = path.join(root, 'profile');
+  const stateDir = path.join(cwd, '.osmosis');
+  return {
+    ambientEnabled: false,
+    cardPacingMs: 1,
+    codexHome: path.join(root, 'codex'),
+    cwd,
+    globalReportQueueCap,
+    host: '127.0.0.1',
+    mode: 'live',
+    port: 4321,
+    profileDir,
+    profilePath: path.join(profileDir, 'profile.json'),
+    provider: 'none',
+    replayPath: path.join(stateDir, 'replay.json'),
+    settingsPath: path.join(profileDir, 'settings.json'),
+    stateDir,
+    templateDelayMs: 60_000,
+    treePath: path.join(stateDir, 'tree.json'),
+    unansweredCardCap: 5,
+  };
+}
+
+async function waitFor(check, message, attempts = 120) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const result = await check();
+    if (result) {
+      return result;
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  throw new Error(`Timed out waiting for ${message}.`);
+}
+
+async function carryProject(broker, projectId) {
+  await broker.activateProject(projectId, {
+    capture_mode: 'agent-reports-only',
+    carry: true,
+    lesson_locale: 'en',
+  });
 }
 
 test('the broker keeps project channels lazy, dual-emits snapshots, and routes registered relay work by token', async (t) => {
@@ -52,14 +96,32 @@ test('the broker keeps project channels lazy, dual-emits snapshots, and routes r
   const defaultId = broker.defaultProjectId;
   assert.ok(defaultId);
 
+  await broker.activateProject(defaultId, {
+    capture_mode: 'agent-reports-only',
+    carry: true,
+    lesson_locale: 'en',
+  });
+
+  const pendingB = await broker.register(projectB);
+  await broker.activateProject(pendingB.project_id, {
+    capture_mode: 'agent-reports-only',
+    carry: true,
+    lesson_locale: 'en',
+  });
   const registration = await broker.register(projectB);
+  const pendingC = await broker.register(projectC);
+  await broker.activateProject(pendingC.project_id, {
+    capture_mode: 'agent-reports-only',
+    carry: true,
+    lesson_locale: 'en',
+  });
   const quietRegistration = await broker.register(projectC);
   assert.equal(typeof registration.token, 'string');
   assert.equal(broker.registry.getHydratedProject(registration.project_id), null, 'registration stores only a summary');
   assert.equal(broker.registry.getHydratedProject(quietRegistration.project_id), null, 'an inactive tab remains summary-only');
   assert.equal(await broker.acceptRelayReport(registration.project_id, 'bad-token', report('not accepted')), false);
   assert.equal(await broker.acceptRelayReport(registration.project_id, registration.token, report('B milestone')), true);
-  await broker.scheduler.whenIdle();
+  await broker.whenIdle();
 
   const bChannel = broker.registry.getHydratedProject(registration.project_id);
   assert.ok(bChannel);
@@ -246,6 +308,17 @@ test('a running broker periodically archives inactive background channels with a
   });
 
   await broker.initialize();
+  await broker.activateProject(broker.defaultProjectId, {
+    capture_mode: 'agent-reports-only',
+    carry: true,
+    lesson_locale: 'en',
+  });
+  const pending = await broker.register(projectB);
+  await broker.activateProject(pending.project_id, {
+    capture_mode: 'agent-reports-only',
+    carry: true,
+    lesson_locale: 'en',
+  });
   const registration = await broker.register(projectB);
   assert.equal(broker.registry.getProject(registration.project_id).archived, false);
   assert.equal(typeof scheduledSweep, 'function', 'initialization schedules a continuous archival sweep');
@@ -263,4 +336,160 @@ test('a running broker periodically archives inactive background channels with a
 
   broker.close();
   assert.equal(clearedHandle, intervalHandle, 'shutdown clears the archival timer');
+});
+
+test('a durable Studio candidate resumes after the broker hydrates it on restart', async (t) => {
+  const root = await temporaryDirectory(t);
+  const config = studioConfig(root);
+  const brokerBeforeRestart = createBroker({ config, hub: { broadcast() {} } });
+  t.after(() => brokerBeforeRestart.close());
+
+  await brokerBeforeRestart.initialize();
+  const projectId = brokerBeforeRestart.defaultProjectId;
+  await carryProject(brokerBeforeRestart, projectId);
+  const interruptedChannel = await brokerBeforeRestart.ensureChannel(projectId);
+  const neverSettles = new Promise(() => {});
+  let providerStarted = false;
+  interruptedChannel.provider.generateCard = async () => {
+    providerStarted = true;
+    return neverSettles;
+  };
+
+  const interruptedReport = { ...report('Restart-safe Studio candidate'), report_id: 'restart-safe-candidate' };
+  assert.equal(await brokerBeforeRestart.acceptLocalReport(interruptedReport, projectId), true);
+  await waitFor(() => providerStarted, 'the first provider request to begin');
+
+  const cardsPath = path.join(root, '.osmosis', 'cards.json');
+  const durableCandidate = await waitFor(async () => {
+    try {
+      const document = JSON.parse(await fs.readFile(cardsPath, 'utf8'));
+      return document.studio?.candidates?.some((candidate) => candidate.report?.report_id === interruptedReport.report_id)
+        ? document
+        : null;
+    } catch (error) {
+      if (error?.code === 'ENOENT') {
+        return null;
+      }
+      throw error;
+    }
+  }, 'the interrupted Studio signal to be persisted');
+  assert.equal(durableCandidate.studio.generation.in_flight, false, 'the durable document never restores a stale provider request');
+  assert.equal(interruptedChannel.state.studio.generation.in_flight, true, 'the first process really was interrupted mid-generation');
+
+  brokerBeforeRestart.close();
+  const brokerAfterRestart = createBroker({ config: studioConfig(root), hub: { broadcast() {} } });
+  t.after(() => brokerAfterRestart.close());
+  await brokerAfterRestart.initialize();
+  // Channel hydration schedules resume work in a microtask so a cold broker
+  // never blocks its first snapshot. Yield once before observing that work.
+  await new Promise((resolve) => setImmediate(resolve));
+  const resumedChannel = await brokerAfterRestart.ensureChannel(projectId);
+  await waitFor(
+    () => resumedChannel.state.cards.length === 1 && resumedChannel.studio.currentCard()?.source?.report_id === interruptedReport.report_id,
+    'the restored candidate to become the Studio Now question',
+  );
+  await brokerAfterRestart.whenIdle();
+  assert.equal(resumedChannel.state.studio.candidates.length, 0);
+  assert.equal(resumedChannel.studio.status().generation_in_flight, false);
+});
+
+test('pre-Studio background registry summaries migrate to Carry instead of activation-pending', async (t) => {
+  const root = await temporaryDirectory(t);
+  const projectA = path.join(root, 'new-studio-project');
+  const projectB = path.join(root, 'legacy-background-project');
+  const profileDir = path.join(root, 'profile');
+  await Promise.all([fs.mkdir(projectA), fs.mkdir(projectB), fs.mkdir(profileDir, { recursive: true })]);
+  const identityB = await resolveProjectIdentity(projectB);
+  await fs.writeFile(
+    path.join(profileDir, 'projects.json'),
+    `${JSON.stringify({
+      version: 1,
+      projects: [{
+        archived: false,
+        last_activity_at: '2026-07-19T00:00:00.000Z',
+        name: 'Legacy background project',
+        project_id: identityB.project_id,
+        root: identityB.root,
+        unanswered_count: 2,
+      }],
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  const broker = createBroker({ config: studioConfig(root, { cwd: projectA }), hub: { broadcast() {} } });
+  t.after(() => broker.close());
+  await broker.initialize();
+
+  const activation = broker.activation(identityB.project_id);
+  assert.equal(activation.state, 'carried');
+  assert.equal(activation.carry, true);
+  assert.equal(activation.pending_report_count, 0);
+  assert.equal(activation.capture_mode, 'agent-reports-only');
+  const settings = await broker.getSettings();
+  assert.equal(settings.projects[identityB.project_id].carry, true, 'the migration is durable in user-facing settings');
+  assert.equal(
+    (await broker.initialEvents()).at(-1).payload.activations.find((item) => item.project_id === identityB.project_id).state,
+    'carried',
+    'the first v2 snapshot cannot mislabel pre-existing background state as undecided',
+  );
+
+  const registration = await broker.register(projectB);
+  assert.equal(registration.project_id, identityB.project_id);
+  assert.equal(typeof registration.token, 'string');
+  assert.equal(Object.hasOwn(registration, 'activation_pending'), false, 'the relay takes the normal carried-project handshake');
+});
+
+test('a Studio candidate rejected at the global ceiling resumes fairly when its slot frees', async (t) => {
+  const root = await temporaryDirectory(t);
+  const projectA = path.join(root, 'slot-holder-project');
+  const projectB = path.join(root, 'waiting-project');
+  await Promise.all([fs.mkdir(projectA), fs.mkdir(projectB)]);
+  const broker = createBroker({
+    config: studioConfig(root, { cwd: projectA, globalReportQueueCap: 1 }),
+    hub: { broadcast() {} },
+  });
+  let releaseHolder;
+  t.after(() => {
+    releaseHolder?.();
+    broker.close();
+  });
+
+  await broker.initialize();
+  const projectAId = broker.defaultProjectId;
+  await carryProject(broker, projectAId);
+  const pendingB = await broker.register(projectB);
+  await carryProject(broker, pendingB.project_id);
+  const projectBId = pendingB.project_id;
+  const holderChannel = await broker.ensureChannel(projectAId);
+  const waitingChannel = await broker.ensureChannel(projectBId);
+  const templateCard = holderChannel.provider.generateCard.bind(holderChannel.provider);
+  let beginHolder;
+  const holderStarted = new Promise((resolve) => { beginHolder = resolve; });
+  const holderGate = new Promise((resolve) => { releaseHolder = resolve; });
+  holderChannel.provider.generateCard = async (...args) => {
+    beginHolder();
+    await holderGate;
+    return templateCard(...args);
+  };
+
+  assert.equal(await broker.acceptLocalReport(report('Occupy the one global provider slot'), projectAId), true);
+  await holderStarted;
+  assert.equal(broker.scheduler.getDebugState().active, 1);
+
+  assert.equal(await broker.acceptLocalReport(report('Wait for the fair Studio retry'), projectBId), true);
+  await waitFor(
+    () => waitingChannel.state.studio.candidates.length === 1 && !waitingChannel.studio.status().generation_in_flight,
+    'the second channel to retain its rejected candidate',
+  );
+  assert.equal(waitingChannel.studio.status().waiting.state, 'queued');
+  assert.equal(waitingChannel.state.cards.length, 0);
+
+  releaseHolder();
+  await waitFor(
+    () => waitingChannel.state.cards.length === 1 && waitingChannel.studio.currentCard()?.source?.task === 'Wait for the fair Studio retry',
+    'the freed global slot to wake the waiting channel',
+  );
+  await broker.whenIdle();
+  assert.equal(waitingChannel.state.studio.candidates.length, 0);
+  assert.equal(waitingChannel.studio.status().generation_in_flight, false);
 });

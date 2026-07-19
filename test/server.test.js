@@ -7,6 +7,8 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const test = require('node:test');
 
+const { resolveProjectIdentity } = require('../lib/project-identity');
+
 const SERVER_PATH = path.resolve(__dirname, '..', 'server.js');
 
 function delay(milliseconds) {
@@ -160,10 +162,54 @@ function startTrackedServer(cleanup, options) {
   return runner;
 }
 
-async function startHttpServer(cleanup, { cwd, extraEnv = {} }) {
+async function activateStudioProject(port, { carry = true, captureMode = 'agent-reports-only', locale = 'en' } = {}) {
+  const settingsResponse = await fetch(`http://127.0.0.1:${port}/settings`, { cache: 'no-store' });
+  assert.equal(settingsResponse.status, 200);
+  const settings = await settingsResponse.json();
+  const activation = settings.activation;
+  // A test may need to turn the already carried default project from the
+  // conservative reports-only setting into Ambient Watch. Treat activation
+  // as an editable Studio preference, not a one-shot fixture step.
+  if (activation?.carry === carry
+    && activation?.capture_mode === captureMode
+    && activation?.lesson_locale === locale) {
+    return activation;
+  }
+  const response = await fetch(`http://127.0.0.1:${port}/activation?project=${encodeURIComponent(activation.project_id)}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ carry, capture_mode: captureMode, lesson_locale: locale, auto_advance: false }),
+  });
+  assert.equal(response.status, 200);
+  return (await response.json()).activation;
+}
+
+async function activateStudioProjectAtRoot(port, root, options = {}) {
+  const identity = await resolveProjectIdentity(root);
+  const response = await fetch(`http://127.0.0.1:${port}/activation?project=${encodeURIComponent(identity.project_id)}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      auto_advance: false,
+      capture_mode: options.captureMode || 'agent-reports-only',
+      carry: options.carry !== false,
+      lesson_locale: options.locale || 'en',
+    }),
+  });
+  assert.equal(response.status, 200);
+  return response.json();
+}
+
+async function startHttpServer(cleanup, {
+  cwd,
+  extraEnv = {},
+  activate = true,
+  captureMode = 'agent-reports-only',
+}) {
   const runner = startTrackedServer(cleanup, { cwd, port: 0, extraEnv });
   const port = await waitFor(() => listeningPort(runner), 'an assigned HTTP port');
   await waitFor(() => health(port), 'the HTTP server');
+  if (activate) await activateStudioProject(port, { captureMode });
   return { runner, port };
 }
 
@@ -365,7 +411,7 @@ async function writeFailingCodexShim(directory) {
 test('SSE sends an empty snapshot followed by a template card', { timeout: 10_000 }, async (t) => {
   const cleanup = createTestCleanup(t);
   const cwd = await temporaryProject(cleanup);
-  const { port } = await startHttpServer(cleanup, { cwd, extraEnv: { OSMOSIS_TEMPLATE_DELAY_MS: '400' } });
+  const { port } = await startHttpServer(cleanup, { cwd, activate: false, extraEnv: { OSMOSIS_TEMPLATE_DELAY_MS: '400' } });
   const projectStateScript = await fetch(`http://127.0.0.1:${port}/project-state.js`);
   assert.equal(projectStateScript.status, 200);
   assert.match(await projectStateScript.text(), /applyBackgroundActivity/);
@@ -374,6 +420,8 @@ test('SSE sends an empty snapshot followed by a template card', { timeout: 10_00
   const snapshot = await stream.nextEvent();
   assert.equal(snapshot.type, 'snapshot');
   assert.deepEqual(snapshot.data.cards, []);
+
+  await activateStudioProject(port);
 
   const card = await nextEventOfType(stream, 'card');
   assert.equal(card.data.source.task, 'Step 1 Skeleton');
@@ -412,8 +460,12 @@ test('MCP stdio accepts two sequential reports without corrupting stdout', { tim
   const firstCard = await nextEventOfType(stream, 'card');
   assert.equal(firstCard.data.source.what_i_did, 'Built and verified the HTTP and SSE skeleton with a template lesson.');
   assert.equal(firstCard.data.source.kind, 'agent');
-  const latestCard = await nextEventOfType(stream, 'card');
-  assert.equal(latestCard.data.source.what_i_did, 'Added the MCP reporting tool and verified a second sequential report.');
+  const ready = await nextEventMatching(
+    stream,
+    (event) => event.type === 'studio' && event.data.next?.ready === true,
+    'the hidden ready Studio lesson',
+  );
+  assert.equal(ready.data.current.source.what_i_did, 'Built and verified the HTTP and SSE skeleton with a template lesson.');
 
   runner.child.stdin.write(
     `${JSON.stringify({ jsonrpc: '2.0', id: 5, method: 'resources/read', params: { uri: 'ui://osmosis/card.html' } })}\n`,
@@ -422,13 +474,13 @@ test('MCP stdio accepts two sequential reports without corrupting stdout', { tim
   const inlineResource = JSON.parse(runner.stdoutLines().at(-1));
   assert.equal(inlineResource.id, 5);
   assert.equal(inlineResource.result.contents[0].mimeType, 'text/html');
-  assert.match(inlineResource.result.contents[0].text, /Added the MCP reporting tool and verified a second sequential report/);
+  assert.match(inlineResource.result.contents[0].text, /Built and verified the HTTP and SSE skeleton with a template lesson/);
   assert.equal(inlineResource.result.contents[0]._meta.ui.csp.connectDomains[0], `http://127.0.0.1:${port}`);
 
   const refreshedInlineCard = await fetch(`http://127.0.0.1:${port}/inline-card`);
   assert.equal(refreshedInlineCard.status, 200);
   assert.equal(refreshedInlineCard.headers.get('access-control-allow-origin'), '*');
-  assert.match(await refreshedInlineCard.text(), /Added the MCP reporting tool and verified a second sequential report/);
+  assert.match(await refreshedInlineCard.text(), /Built and verified the HTTP and SSE skeleton with a template lesson/);
 
   const reports = await (await fetch(`http://127.0.0.1:${port}/debug/reports`)).json();
   assert.deepEqual(
@@ -528,9 +580,21 @@ test('a port loser registers its relay project before its first MCP report', { t
   });
   await waitFor(() => relay.stderr().includes('HTTP disabled'), 'the relay port guard');
 
-  // Do not write any MCP report. Registration is part of entering relay mode,
-  // so the broker knows which project an inline resource belongs to already.
+  // Registration is part of entering relay mode, but Carry is the explicit
+  // user decision that creates a project channel. Before that decision, the
+  // relay has identity without a tab or project state.
   const canonicalRelayCwd = await fs.realpath(relayCwd);
+  const relayIdentity = await resolveProjectIdentity(relayCwd);
+  const pending = await waitFor(async () => {
+    const response = await fetch(`http://127.0.0.1:${port}/settings`);
+    const body = await response.json();
+    return body.activations?.find((activation) => activation.project_id === relayIdentity.project_id) || null;
+  }, 'the report-free relay activation identity');
+  assert.equal(pending.state, 'activation-pending');
+  const beforeCarry = await fetch(`http://127.0.0.1:${port}/projects`);
+  assert.equal((await beforeCarry.json()).projects.some((candidate) => candidate.root === canonicalRelayCwd), false);
+
+  await activateStudioProjectAtRoot(port, relayCwd);
   const project = await waitFor(async () => {
     const response = await fetch(`http://127.0.0.1:${port}/projects`);
     const body = await response.json();
@@ -575,6 +639,13 @@ test('the port owner brokers registered project channels with a token, lazy snap
     extraEnv: { OSMOSIS_PROFILE_DIR: sharedProfile, OSMOSIS_TEMPLATE_DELAY_MS: '60000' },
   });
   await waitFor(() => secondary.stderr().includes('HTTP disabled'), 'the registered project relay');
+  const secondaryIdentity = await resolveProjectIdentity(secondaryCwd);
+  await waitFor(async () => {
+    const response = await fetch(`http://127.0.0.1:${port}/settings`);
+    const body = await response.json();
+    return body.activations?.some((activation) => activation.project_id === secondaryIdentity.project_id);
+  }, 'the relay activation identity');
+  await activateStudioProjectAtRoot(port, secondaryCwd);
   secondary.child.stdin.write(
     `${JSON.stringify(reportMessage(1, 'Project B channel', 'Delivered a lesson into the ferry viewer project.'))}\n`,
   );
@@ -662,6 +733,7 @@ test('a port loser takes over the local pipeline and watcher after the owner exi
       OSMOSIS_SESSIONS_DIR: sessionsDir,
       OSMOSIS_TEMPLATE_DELAY_MS: '60000',
     },
+    captureMode: 'experimental-ambient',
   });
   const secondary = startTrackedServer(cleanup, {
     cwd: secondaryCwd,
@@ -678,6 +750,7 @@ test('a port loser takes over the local pipeline and watcher after the owner exi
   await stopServer(primary);
   await waitFor(() => listeningPort(secondary) === port, 'the retry-path HTTP takeover');
   await waitFor(() => health(port), 'the takeover HTTP server');
+  await activateStudioProject(port, { captureMode: 'experimental-ambient' });
 
   secondary.child.stdin.write(
     `${JSON.stringify(reportMessage(1, 'Takeover report', 'Accepted a report through the newly owned local pipeline.'))}\n`,
@@ -753,7 +826,18 @@ test('a same-project port takeover reloads cards and mastery before writing agai
     `${JSON.stringify(reportMessage(1, 'After takeover', 'Delivered another lesson from the new local owner.'))}\n`,
   );
   await waitFor(() => secondary.stdoutLines().length === 1, 'the post-takeover acknowledgement');
-  const secondCard = (await nextEventOfType(takeoverStream, 'card')).data;
+  // Studio keeps the newly prepared lesson hidden as Next until the learner
+  // explicitly advances. That ready card deliberately is not a second
+  // unsolicited feed item.
+  await nextEventOfType(takeoverStream, 'studio');
+  const takeoverHealth = await health(port);
+  const nextResponse = await fetch(
+    `http://127.0.0.1:${port}/projects/${encodeURIComponent(takeoverHealth.default_project_id)}/next`,
+    { method: 'POST' },
+  );
+  assert.equal(nextResponse.status, 200);
+  const secondCard = (await nextResponse.json()).card;
+  assert.ok(secondCard);
   const secondAnswer = await fetch(`http://127.0.0.1:${port}/answer`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -791,6 +875,7 @@ test('Ambient Watch runs only in the HTTP-owning server instance', { timeout: 12
       OSMOSIS_SESSIONS_DIR: sessionsDir,
       OSMOSIS_TEMPLATE_DELAY_MS: '60000',
     },
+    captureMode: 'experimental-ambient',
   });
   // The owner attaches at EOF before we append a new session event.
   await delay(120);
@@ -943,7 +1028,7 @@ test('a correct answer persists cards and user mastery, then survives an SSE rel
   assert.equal('correct_index' in reloadedCard, false);
 });
 
-test('a wrong answer returns only after two other delivered cards in the same session', { timeout: 10_000 }, async (t) => {
+test('a wrong answer stays reviewable while Studio prepares one deliberate next lesson', { timeout: 10_000 }, async (t) => {
   const cleanup = createTestCleanup(t);
   const cwd = await temporaryProject(cleanup);
   const { runner, port } = await startHttpServer(cleanup, { cwd });
@@ -969,14 +1054,35 @@ test('a wrong answer returns only after two other delivered cards in the same se
     `${JSON.stringify(reportMessage(2, 'Second report', 'Delivered the first intervening report card.'))}\n${JSON.stringify(reportMessage(3, 'Third report', 'Delivered the second intervening report card.'))}\n`,
   );
   await waitFor(() => runner.stdoutLines().length === 3, 'the two later report acknowledgements');
+  const projectId = (await health(port)).default_project_id;
+  await waitFor(async () => {
+    const snapshot = await fetch(`http://127.0.0.1:${port}/projects/${encodeURIComponent(projectId)}/snapshot`);
+    const body = await snapshot.json();
+    return body.studio?.next?.ready === true;
+  }, 'a hidden next lesson');
 
-  const firstIntervening = (await nextEventOfType(stream, 'card')).data;
-  const secondIntervening = (await nextEventOfType(stream, 'card')).data;
-  const requeued = (await nextEventOfType(stream, 'card')).data;
-  assert.equal(firstIntervening.source.task, 'Second report');
-  assert.equal(secondIntervening.source.task, 'Third report');
-  assert.equal(requeued.source.task, 'First report');
-  assert.notEqual(requeued.card_id, firstCard.card_id);
+  const advance = await fetch(`http://127.0.0.1:${port}/projects/${encodeURIComponent(projectId)}/next`, {
+    method: 'POST',
+  });
+  assert.equal(advance.status, 200);
+  const secondCard = (await advance.json()).card;
+  assert.equal(secondCard.source.task, 'Second report');
+  const secondAnswer = await fetch(`http://127.0.0.1:${port}/answer`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ card_id: secondCard.card_id, chosen_index: 0 }),
+  });
+  assert.equal((await secondAnswer.json()).correct, true);
+
+  const review = await fetch(`http://127.0.0.1:${port}/projects/${encodeURIComponent(projectId)}/review`);
+  const reviewCards = (await review.json()).cards;
+  assert.equal(reviewCards.filter((card) => card.card_id === firstCard.card_id).length, 1);
+  assert.equal(reviewCards.find((card) => card.card_id === firstCard.card_id).state.correct, false);
+  // The template provider maps both later signals to the same concept. A
+  // correct answer deliberately clears a hidden duplicate rather than
+  // turning it into a third question on the learner's trail.
+  const afterMastery = await (await fetch(`http://127.0.0.1:${port}/projects/${encodeURIComponent(projectId)}/snapshot`)).json();
+  assert.equal(afterMastery.studio.next.ready, false);
 });
 
 test('record mode creates a clean replay from reports but excludes starter cards and requeues', { timeout: 10_000 }, async (t) => {
@@ -1209,5 +1315,8 @@ test('a mastered none-provider concept carries across projects without generatin
   const reports = await (await fetch(`http://127.0.0.1:${portB}/debug/reports`)).json();
   assert.deepEqual(reports.reports.map((report) => report.task), ['Project B M1']);
   await delay(100);
-  await assert.rejects(fs.readFile(path.join(projectB, '.osmosis', 'cards.json'), 'utf8'), { code: 'ENOENT' });
+  // Studio persists its tiny watermark even when the mastered concept is
+  // skipped; it must not persist a duplicate lesson card.
+  const studioDocument = JSON.parse(await fs.readFile(path.join(projectB, '.osmosis', 'cards.json'), 'utf8'));
+  assert.deepEqual(studioDocument.cards, []);
 });

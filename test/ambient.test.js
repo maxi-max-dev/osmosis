@@ -280,6 +280,99 @@ test('Ambient Watch keeps rollout buckets by registered project and sends unknow
   watcher.stop();
 });
 
+test('Ambient Watch silently ignores newly appended signals while Learning Studio is paused', async (t) => {
+  const { projectDir, sessionsDir } = await setup(t);
+  const clock = { value: Date.now() };
+  const delivered = [];
+  const suppressed = [];
+  const canonicalProject = await fs.realpath(projectDir);
+  const watcher = createAmbientWatcher({
+    config: {
+      ambientEnabled: true,
+      ambientEmitIntervalMs: 1,
+      cwd: projectDir,
+      sessionsDir,
+    },
+    now: () => clock.value,
+    resolveProject(cwd) {
+      assert.equal(cwd, canonicalProject);
+      return { reason: 'learning-paused', registered: false, root: canonicalProject };
+    },
+    onReport(report) {
+      delivered.push(report);
+    },
+    onSuppressed(entry) {
+      suppressed.push(entry);
+    },
+  });
+  t.after(() => watcher.stop());
+
+  const rollout = await createRollout(sessionsDir, clock.value);
+  await watcher.poll();
+  await appendEvents(rollout, clock.value, [
+    execEvent('node build.js', projectDir),
+    patchEvent({ '/private/project/src/scene.ts': 'ignored while paused' }),
+  ]);
+  await watcher.poll();
+
+  assert.deepEqual(delivered, []);
+  assert.deepEqual(suppressed, []);
+  assert.equal(watcher.getDebugState().pendingSignals, 0);
+});
+
+test('Ambient Watch discards queued signals when Learning Studio pauses before their flush', async (t) => {
+  const { projectDir, sessionsDir } = await setup(t);
+  const clock = { value: Date.now() };
+  const delivered = [];
+  const suppressed = [];
+  const canonicalProject = await fs.realpath(projectDir);
+  let paused = false;
+  const watcher = createAmbientWatcher({
+    config: {
+      ambientEnabled: true,
+      ambientEmitIntervalMs: 45_000,
+      cwd: projectDir,
+      sessionsDir,
+    },
+    now: () => clock.value,
+    resolveProject(cwd) {
+      assert.equal(cwd, canonicalProject);
+      return paused
+        ? { reason: 'learning-paused', registered: false, root: canonicalProject }
+        : { project_id: 'project-a-0123456789', root: canonicalProject };
+    },
+    onReport(report) {
+      delivered.push(report);
+    },
+    onSuppressed(entry) {
+      suppressed.push(entry);
+    },
+  });
+  t.after(() => watcher.stop());
+
+  const rollout = await createRollout(sessionsDir, clock.value);
+  await watcher.poll();
+
+  await appendEvents(rollout, clock.value, [execEvent('node first.js', projectDir)]);
+  await watcher.poll();
+  assert.equal(delivered.length, 1, 'the first active signal delivers immediately');
+
+  clock.value += 1;
+  await appendEvents(rollout, clock.value, [execEvent('npm test', projectDir)]);
+  await watcher.poll();
+  assert.equal(delivered.length, 1, 'the second signal waits behind the per-session pace');
+  assert.equal(watcher.getDebugState().pendingSignals, 1);
+
+  paused = true;
+  clock.value += 45_000;
+  await fs.utimes(rollout, new Date(clock.value), new Date(clock.value));
+  await watcher.poll();
+
+  assert.equal(delivered.length, 1, 'a paused Studio never flushes pre-pause observations');
+  assert.deepEqual(suppressed, []);
+  assert.equal(watcher.getDebugState().pendingSignals, 0);
+});
+
 test('Ambient Watch snapshots startup EOFs but reads a rollout created before first discovery from byte zero', { timeout: 3_000 }, async (t) => {
   const { projectDir, sessionsDir } = await setup(t);
   const clock = { value: Date.now() };

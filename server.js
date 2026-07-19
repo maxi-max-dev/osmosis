@@ -4,7 +4,7 @@
 const http = require('node:http');
 const path = require('node:path');
 
-const { createTemplateCard } = require('./lib/card-factory');
+const { STARTER_REPORT } = require('./lib/card-factory');
 const { createAmbientWatcher } = require('./lib/ambient');
 const { createBroker } = require('./lib/broker');
 const { getConfig } = require('./lib/config');
@@ -249,6 +249,10 @@ async function main() {
     hub,
     initialEvents: () => broker.initialEvents(),
     inlineCardHtml,
+    // First activation may happen after the server booted, so schedule the
+    // same gentle starter timer used at boot rather than bypassing the Studio
+    // with an immediate card.
+    onActivated: () => startStarterTimer(),
     recentReports: () => broker.recentReports(),
     snapshot: () => ({ cards: [], strengths: {}, tree: { meta: {}, nodes: [] } }),
   });
@@ -286,7 +290,14 @@ async function main() {
   }
 
   function startStarterTimer() {
-    if (!httpEnabled || starterTimer || config.mode !== 'live' || config.provider !== 'none') {
+    if (
+      !httpEnabled
+      || starterTimer
+      || config.mode !== 'live'
+      || config.provider !== 'none'
+      || broker.activation()?.carry !== true
+      || broker.settingsStore?.isPaused?.()
+    ) {
       return;
     }
     starterTimer = setTimeout(() => {
@@ -296,18 +307,16 @@ async function main() {
   }
 
   async function pushStarterCard() {
+    if (broker.activation()?.carry !== true || broker.settingsStore?.isPaused?.()) {
+      return;
+    }
     const channel = await broker.ensureChannel();
     if (!channel || channel.state.cards.some((card) => !card.state.answered)) {
       return;
     }
-    const card = createTemplateCard();
-    const delivery = await channel.cardService.deliver(card, {
-      afterPersisted: () => channel.curriculumService.markDelivered(card.concept_id),
-      beforePersist: () => channel.curriculumService.beforeDelivery(card),
-    });
-    if (delivery.delivered) {
-      log('template card generated', card.card_id);
-    }
+    // A starter follows the same bounded Studio path as every other signal;
+    // it never bypasses the single Now/Next delivery state machine.
+    await broker.acceptLocalReport({ ...STARTER_REPORT, stack_hints: ['Osmosis', 'learning loop'] });
   }
 
   function stopPortRetry() {

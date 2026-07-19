@@ -65,13 +65,25 @@ The server resolves the nearest Git root as the project channel (or preserves an
 
 ## Project channels
 
-One local wall can broker several Osmosis-enabled projects. The first project is hydrated immediately; other registered projects are summaries until you open their tab, keeping an old project from doing unnecessary provider work. Each tab has its own card queue and tree, while the shared mastery profile makes only deliberately global starter concepts carry gold mastery across projects.
+One local wall can broker several Osmosis-enabled projects. Once you choose **Carry**, the first project is hydrated immediately; other registered projects are summaries until you open their tab, keeping an old project from doing unnecessary provider work. Each tab has its own card queue and tree, while the shared mastery profile makes only deliberately global starter concepts carry gold mastery across projects.
 
 Browser-wall pacing is per channel: work in Project A never inserts a cross-project gap before Project B's next card. A user-level interruption throttle is deliberately reserved for a future notification adapter; it is a documented no-op in this browser-only release. Shared `profile.json` updates use a Node-core cross-process lock around read-modify-write, so concurrent answers and owner takeover preserve monotonic mastery and counters.
 
 The relay performs a local registration handshake before forwarding a report. It sends the canonical project root exactly once to receive an ephemeral capability token; subsequent relay requests carry only the opaque project id and token. This prevents a report request from choosing a filesystem path or another project's channel.
 
 Project summaries are persisted at `~/.osmosis/projects.json`. Per-project activity traces are durable, bounded JSONL files at `~/.osmosis/ledger/<project-id>.jsonl`; they explain whether a report was accepted, waiting, skipped, failed, or delivered. Archive hides an old project from the main tab rail without deleting its state; a restore control keeps it recoverable, and dormant channels automatically collapse into the archived group after 30 days. New activity unarchives a channel with a ready badge but never steals the active tab.
+
+## Learning Studio (Stage 1)
+
+The browser wall is now a focused Learning Studio: one **Now** question, a quiet prepared **Next** lesson, and a review trail of lessons you have already answered. Project tabs keep their own learning trail and ready badge; changing a tab is always your choice, and each channel can be deep-linked from the URL. Optional auto-advance only moves forward when a prepared next lesson exists, pauses when you interact, and never removes the **Next** control.
+
+The first time a project reaches Osmosis, the Studio asks for three choices and saves them in `~/.osmosis/settings.json`:
+
+- **Global learning — On or Paused.** Paused stops new lesson work without deleting the projects, trail, or review history you already have.
+- **Carry this project — Carry or Don't carry.** Carry is the explicit decision that registers the project as a Studio channel and lets it participate in shared mastery. Don't carry keeps ambient activity from creating project learning state. Explicit agent reports wait for an activation decision instead of silently becoming a lesson.
+- **Capture — Agent reports only or + experimental Ambient Watch.** The first mode teaches only from explicit `osmosis_report` milestones. The second also permits the local experimental observer described below, with its provenance labels kept visible.
+
+The activation flow also records English or Simplified Chinese as your lesson preference. Stage 1 persists that preference; locale-aware bite-size lesson content arrives in Stage 2, so current generated cards remain provider-controlled. You can revisit the global and project choices from Studio settings at any time.
 
 ## Experimental: inline MCP Apps
 
@@ -165,7 +177,7 @@ The suite verifies all completed P0 behavior:
 - `POST /answer?project=<id>` keeps its frozen two-key body, atomically persists `cards.json` and `~/.osmosis/profile.json`, includes the local iframe CORS response headers, and a reconnecting browser receives the answered state;
 - profile mutations take a Node-core cross-process lock around their read-modify-write cycle, project provider concepts are namespaced, and legacy mastery records remain readable during migration;
 - activity ledgers trace report acceptance, refusal, provider result, failure, and delivery without treating a provider failure as idle;
-- an incorrect answer waits for two other delivered cards before it reappears;
+- the Learning Studio keeps one visible Now lesson, one hidden ready Next lesson, and a bounded two-signal candidate watermark; an answered lesson stays in review while an explicit Next click bypasses background pacing;
 - Ambient Watch is opt-in, tails only the matching project's active rollout logs in isolated fixtures, labels patch observations separately from exec/MCP activity, respects bounded queue/pacing behavior, ignores Osmosis's own generator activity, runs only in the HTTP owner, and shuts down without retained timers;
 - record mode excludes starter cards and wrong-answer requeues from `.osmosis/replay.json`;
 - replay mode uses real reports to emit sanitized recorded cards in order, then finishes calmly when exhausted;

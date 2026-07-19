@@ -28,8 +28,8 @@ function pendingCard(conceptId) {
   return { concept_id: conceptId, state: { answered: false } };
 }
 
-function createHarness({ cards = [], strengths = {}, cardPacingMs = 12_000, sleep = async () => {}, clock = () => 1_000 } = {}) {
-  const state = { cards, strengths, tree: { meta: {}, nodes: [] } };
+function createHarness({ cards = [], strengths = {}, studio = null, cardPacingMs = 12_000, sleep = async () => {}, clock = () => 1_000 } = {}) {
+  const state = { cards, strengths, studio, tree: { meta: {}, nodes: [] } };
   const events = [];
   const savedTrees = [];
   let treeCalls = 0;
@@ -116,6 +116,28 @@ test('live curriculum pacing waits 12 seconds after the first delivered card and
   const skipped = await harness.curriculum.beforeDelivery(masteredDuringWait);
   assert.equal(skipped.deliver, false);
   assert.equal(skipped.state, 'skipped');
+});
+
+test('a deliberate Studio Next bypasses pacing, while a restarted channel restores its unsolicited cadence', async () => {
+  let now = 2_000;
+  const waits = [];
+  const restored = createHarness({
+    clock: () => now,
+    sleep: async (milliseconds) => {
+      waits.push(milliseconds);
+      now += milliseconds;
+    },
+    studio: { last_unsolicited_delivery_at: 1_000 },
+  });
+
+  const next = { concept_id: 'json', concept_name: 'JSON data' };
+  assert.deepEqual(await restored.curriculum.beforeDelivery(next, { solicited: true }), { deliver: true });
+  assert.deepEqual(waits, [], 'an explicit Next click must never wait behind background pacing');
+
+  now = 2_000;
+  const unsolicited = { concept_id: 'state', concept_name: 'App state' };
+  assert.deepEqual(await restored.curriculum.beforeDelivery(unsolicited), { deliver: true });
+  assert.deepEqual(waits, [11_000], 'a restarted channel keeps the previous unsolicited delivery gap');
 });
 
 test('separate project channels keep independent pacing clocks and unanswered caps', async () => {

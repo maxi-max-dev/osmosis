@@ -3,26 +3,39 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#0b1020" />
-    <title>Osmosis — Learn while your agent works</title>
+    <meta name="theme-color" content="#0a1020" />
+    <title>Osmosis — Learning Studio</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <main class="app-shell">
-      <aside class="tree-panel" aria-labelledby="tree-title">
-        <p class="eyebrow">Your project curriculum</p>
-        <h1 id="tree-title">Skill tree</h1>
-        <p class="tree-empty" id="tree-empty">Your project tree appears when live concept generation is enabled.</p>
-        <ol class="tree-list" id="tree-list" aria-live="polite"></ol>
+    <main class="studio-shell">
+      <aside class="trail-panel" aria-labelledby="trail-title">
+        <a class="wordmark" href="#" aria-label="Osmosis Learning Studio">
+          <span class="wordmark-mark" aria-hidden="true">◌</span>
+          <span>Osmosis</span>
+        </a>
+        <div class="trail-heading">
+          <p class="eyebrow">Learning Studio</p>
+          <h1 id="trail-title">Your learning trail</h1>
+          <p class="trail-intro">A quiet record of the ideas your work has surfaced — not a course you have to keep up with.</p>
+        </div>
+        <ol class="learning-trail" id="learning-trail" aria-live="polite"></ol>
+        <div class="trail-footer">
+          <button class="text-button" id="review-button" type="button">Review past lessons <span aria-hidden="true">→</span></button>
+          <p id="trail-note">Your next useful signal will become a lesson here.</p>
+        </div>
       </aside>
 
-      <section class="lesson-panel" aria-labelledby="lesson-title">
-        <header class="lesson-header">
+      <section class="studio-panel" aria-labelledby="studio-title">
+        <header class="studio-header">
           <div>
-            <p class="eyebrow">Osmosis</p>
-            <h2 id="lesson-title">Learn while your agent works</h2>
+            <p class="eyebrow">While your agent works</p>
+            <h2 id="studio-title">One useful thing at a time.</h2>
           </div>
-          <span class="connection" id="connection">Connecting…</span>
+          <div class="header-actions">
+            <span class="connection" id="connection">Connecting…</span>
+            <button class="settings-button" id="settings-button" type="button" aria-haspopup="dialog" aria-controls="settings-dialog">Settings</button>
+          </div>
         </header>
 
         <nav class="project-rail" aria-label="Project channels">
@@ -33,10 +46,17 @@
           </details>
         </nav>
 
+        <section class="activation-inbox" id="activation-inbox" aria-live="polite" hidden></section>
+
+        <div class="studio-nav" id="studio-nav" hidden>
+          <button class="studio-nav-link" type="button" data-studio-view="now">Now</button>
+          <button class="studio-nav-link" type="button" data-studio-view="review">Past lessons</button>
+        </div>
         <div class="toast" id="toast" role="status" aria-live="polite"></div>
-        <section class="card-area" id="card-area" aria-live="polite"></section>
+        <section class="studio-stage" id="studio-stage" aria-live="polite"></section>
       </section>
     </main>
+
     <aside class="activity-drawer" id="activity-drawer" aria-label="Project activity" hidden>
       <div class="activity-drawer-header">
         <div>
@@ -47,8 +67,23 @@
       </div>
       <ol class="activity-list" id="activity-list"></ol>
     </aside>
-    <footer class="mode-footer" id="mode-footer">live · none</footer>
+
+    <dialog class="settings-dialog" id="settings-dialog" aria-labelledby="settings-title">
+      <form method="dialog" class="settings-sheet" id="settings-form">
+        <header class="settings-header">
+          <div>
+            <p class="eyebrow">Learning preferences</p>
+            <h2 id="settings-title">Make Osmosis yours</h2>
+          </div>
+          <button class="activity-close" type="submit" value="cancel" aria-label="Close settings">×</button>
+        </header>
+        <div id="settings-content"></div>
+      </form>
+    </dialog>
+
+    <footer class="mode-footer" id="mode-footer">live · local</footer>
     <script src="/project-state.js"></script>
+    <script src="/studio-state.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>
