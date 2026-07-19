@@ -518,6 +518,118 @@ test('Ambient Watch resumes an idle rollout from its identity cursor without rep
   watcher.stop();
 });
 
+test('Ambient Watch restores a tombstoned session route for inherited patch and MCP events', async (t) => {
+  const { projectDir, sessionsDir } = await setup(t);
+  const clock = { value: Date.now() };
+  const delivered = [];
+  const canonicalProject = await fs.realpath(projectDir);
+  const watcher = createAmbientWatcher({
+    config: {
+      ambientEnabled: true,
+      ambientEmitIntervalMs: 1,
+      cwd: projectDir,
+      sessionsDir,
+    },
+    now: () => clock.value,
+    resolveProject(cwd) {
+      return cwd === canonicalProject
+        ? { project_id: 'project-a-0123456789', root: canonicalProject }
+        : { registered: false, root: cwd };
+    },
+    onReport(report, project) {
+      delivered.push({ project, report });
+    },
+  });
+  t.after(() => watcher.stop());
+
+  await watcher.poll();
+  const rollout = await createRollout(sessionsDir, clock.value, {
+    name: 'tombstone-route',
+    events: [execEvent('node first-pass.js', projectDir)],
+  });
+  await watcher.poll();
+  assert.deepEqual(delivered.map(({ project }) => project.project_id), ['project-a-0123456789']);
+
+  // Pruning removes the active file state but retains its cursor and the
+  // session route learned from the exec event.
+  clock.value += ACTIVE_FILE_AGE_MS + 2;
+  await watcher.poll();
+  assert.equal(watcher.getDebugState().cursorTombstones, 1);
+
+  // Neither patch nor MCP events carry a workdir. They must inherit the
+  // revalidated route after this dormant rollout resumes, without replaying
+  // the earlier node event.
+  await appendEvents(rollout, clock.value, [
+    patchEvent({ '/private/project/src/resumed.css': 'not displayed' }),
+    mcpEvent('github', 'search_code'),
+  ]);
+  await watcher.poll();
+
+  assert.deepEqual(delivered.map(({ project }) => project.project_id), [
+    'project-a-0123456789',
+    'project-a-0123456789',
+  ]);
+  assert.deepEqual(delivered[1].report.stack_hints, ['.css', 'github']);
+  assert.equal(delivered[1].report.observed_kind, 'change');
+  assert.equal(watcher.getDebugState().cursorTombstones, 0);
+});
+
+test('Ambient Watch suppresses a resumed tombstoned route that is no longer carried', async (t) => {
+  const { projectDir, sessionsDir } = await setup(t);
+  const clock = { value: Date.now() };
+  const delivered = [];
+  const suppressed = [];
+  const canonicalProject = await fs.realpath(projectDir);
+  let carried = true;
+  const watcher = createAmbientWatcher({
+    config: {
+      ambientEnabled: true,
+      ambientEmitIntervalMs: 1,
+      cwd: projectDir,
+      sessionsDir,
+    },
+    now: () => clock.value,
+    resolveProject(cwd) {
+      if (cwd !== canonicalProject) {
+        return { registered: false, root: cwd };
+      }
+      return carried
+        ? { project_id: 'project-a-0123456789', root: canonicalProject }
+        : { registered: false, root: canonicalProject };
+    },
+    onReport(report, project) {
+      delivered.push({ project, report });
+    },
+    onSuppressed(entry) {
+      suppressed.push(entry);
+    },
+  });
+  t.after(() => watcher.stop());
+
+  await watcher.poll();
+  const rollout = await createRollout(sessionsDir, clock.value, {
+    name: 'tombstone-unregistered',
+    events: [execEvent('node first-pass.js', projectDir)],
+  });
+  await watcher.poll();
+  assert.equal(delivered.length, 1);
+
+  clock.value += ACTIVE_FILE_AGE_MS + 2;
+  await watcher.poll();
+  carried = false;
+
+  await appendEvents(rollout, clock.value, [
+    patchEvent({ '/private/project/src/unregistered.css': 'not displayed' }),
+  ]);
+  await watcher.poll();
+
+  assert.equal(delivered.length, 1, 'a stale route cannot deliver into its old project');
+  assert.equal(suppressed.length, 1);
+  assert.equal(suppressed[0].state, 'suppressed');
+  assert.equal(suppressed[0].reason, 'unregistered-project');
+  assert.deepEqual(suppressed[0].stack_hints, ['.css']);
+});
+
 test('Ambient Watch bounds cursor tombstones, evicts the oldest, and keeps partial records live', async (t) => {
   const { projectDir, sessionsDir } = await setup(t);
   const clock = { value: Date.now() };
