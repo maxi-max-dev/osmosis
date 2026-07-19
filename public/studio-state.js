@@ -102,6 +102,43 @@
     };
   }
 
+  function normalizeNow(value) {
+    const now = objectOrNull(value);
+    if (!now) return null;
+    if (now.kind === null) return { kind: null, card_ref: null };
+    if (now.kind !== 'real' && now.kind !== 'warmup') return { kind: null, card_ref: null };
+    const cardRef = typeof now.card_ref === 'string' ? now.card_ref.trim() : '';
+    return cardRef ? { kind: now.kind, card_ref: cardRef } : { kind: null, card_ref: null };
+  }
+
+  function normalizeWarmup(value) {
+    const warmup = objectOrNull(value);
+    const warmupId = typeof warmup?.warmup_id === 'string' ? warmup.warmup_id.trim() : '';
+    if (!warmupId) return null;
+    const state = objectOrNull(warmup.state) || {};
+    return {
+      ...warmup,
+      warmup_id: warmupId,
+      state: {
+        ...state,
+        answered: state.answered === true,
+        chosen_index: Number.isInteger(state.chosen_index) ? state.chosen_index : null,
+        correct: typeof state.correct === 'boolean' ? state.correct : null,
+      },
+    };
+  }
+
+  function inferredNow(current, warmup) {
+    if (warmup?.warmup_id) return { kind: 'warmup', card_ref: warmup.warmup_id };
+    if (typeof current?.warmup_id === 'string' && current.warmup_id) {
+      return { kind: 'warmup', card_ref: current.warmup_id };
+    }
+    if (typeof current?.card_id === 'string' && current.card_id) {
+      return { kind: 'real', card_ref: current.card_id };
+    }
+    return { kind: null, card_ref: null };
+  }
+
   /**
    * The one Studio wire contract used by REST snapshots and live SSE:
    * current remains in place until Next, while next_ready exposes only the
@@ -110,9 +147,43 @@
   function normalizeStudioContract(value, fallback = null) {
     const studio = objectOrNull(value);
     const previous = objectOrNull(fallback);
-    const current = studio && hasOwn(studio, 'current')
-      ? studio.current || null
-      : previous?.current || null;
+    const hasNow = Boolean(studio && hasOwn(studio, 'now'));
+    const hasCurrent = Boolean(studio && hasOwn(studio, 'current'));
+    const hasWarmup = Boolean(studio && hasOwn(studio, 'current_warmup'));
+    const rawCurrent = hasCurrent ? objectOrNull(studio.current) : null;
+    const previousNow = normalizeNow(previous?.now) || { kind: null, card_ref: null };
+    const previousWarmup = normalizeWarmup(previous?.current_warmup);
+    const providedWarmup = hasWarmup ? normalizeWarmup(studio.current_warmup) : null;
+    const compatibilityWarmup = normalizeWarmup(rawCurrent);
+    let now;
+    if (hasNow) {
+      now = normalizeNow(studio.now) || { kind: null, card_ref: null };
+    } else if (hasWarmup || hasCurrent) {
+      // An explicit `current_warmup: null` is authoritative: do not revive a
+      // compatibility `current` payload after the owner has replaced it.
+      const currentForInference = hasWarmup && rawCurrent?.warmup_id ? null : rawCurrent;
+      now = inferredNow(currentForInference, hasWarmup ? providedWarmup : compatibilityWarmup);
+    } else {
+      now = previousNow;
+    }
+
+    let currentWarmup = null;
+    let current = null;
+    if (now.kind === 'warmup') {
+      const candidate = hasWarmup ? providedWarmup : compatibilityWarmup || previousWarmup;
+      if (candidate?.warmup_id === now.card_ref) {
+        // `current_warmup` is the authoritative warmup payload. `current`
+        // stays as a compatibility view for existing Studio helpers, but it
+        // must never be treated as a real history card by callers.
+        currentWarmup = candidate;
+        current = candidate;
+      } else {
+        now = { kind: null, card_ref: null };
+      }
+    } else if (now.kind === 'real') {
+      const candidate = hasCurrent ? rawCurrent : objectOrNull(previous?.current);
+      if (candidate?.card_id === now.card_ref) current = candidate;
+    }
     const nextReady = studio && hasOwn(studio, 'next_ready')
       ? studio.next_ready === true
       : studio?.next
@@ -129,15 +200,21 @@
         ? previous.interaction_token
         : null;
     return {
+      now,
       current,
+      current_warmup: currentWarmup,
       next_ready: nextReady,
       waiting,
       ...(interactionToken === null ? {} : { interaction_token: interactionToken }),
     };
   }
 
-  function mergeStudioCurrent(cards, current) {
+  function mergeStudioCurrent(cards, current, now = null) {
     const existing = Array.isArray(cards) ? cards.filter(Boolean) : [];
+    // A warmup's only durable home is `studio.current_warmup` /
+    // `warmup_history`. It must never leak into cards, review, strengths, or
+    // the real learning trail—even if a compatibility `current` field exists.
+    if (now && now.kind !== 'real') return existing;
     if (!current || typeof current.card_id !== 'string') return existing;
     return [...existing.filter((card) => card?.card_id !== current.card_id), current];
   }
@@ -151,7 +228,14 @@
 
   function autoAdvanceEligible(studio) {
     const normalized = normalizeStudioContract(studio);
-    return Boolean(normalized.current?.state?.answered && normalized.next_ready);
+    // Warmups are deliberately local, non-curricular practice. A learner can
+    // manually choose Next after one, but no timer may move them on without
+    // that explicit choice.
+    return Boolean(
+      normalized.now.kind === 'real'
+      && normalized.current?.state?.answered
+      && normalized.next_ready,
+    );
   }
 
   function isActiveNowContext(state, projectId) {

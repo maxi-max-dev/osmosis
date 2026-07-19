@@ -33,6 +33,17 @@ function lesson(cardId, { answered = false, explanation = '' } = {}) {
   };
 }
 
+function warmupLesson(warmupId, { answered = false, explanation = '' } = {}) {
+  return {
+    warmup_id: warmupId,
+    concept_name: '即时热身',
+    explanation,
+    lesson: '这是一段本地热身。',
+    question: '现在正在学习什么？',
+    state: { answered, chosen_index: answered ? 0 : null, correct: answered ? true : null },
+  };
+}
+
 test('Studio routes round-trip a project and the review view without trusting malformed hashes', () => {
   const route = buildStudioRoute({ projectId: 'project-a.1', view: 'review' });
   assert.equal(route, '#project=project-a.1&view=review');
@@ -118,6 +129,43 @@ test('the canonical Studio contract keeps answered Now through a live ready flip
   assert.equal(nextControlState(promoted), 'hidden');
 });
 
+test('the client treats current_warmup as the authoritative warmup Now and never merges it into real history', () => {
+  const realHistory = [lesson('real-history')];
+  const warmup = warmupLesson('warmup-now');
+  const live = normalizeStudioContract({
+    now: { kind: 'warmup', card_ref: 'warmup-now' },
+    // A stale compatibility current must not override the authoritative
+    // warmup record carried by snapshot/SSE.
+    current: lesson('stale-real'),
+    current_warmup: warmup,
+    next_ready: false,
+    waiting: { reason: 'queued', source_provenance: null },
+  });
+  assert.deepEqual(live.now, { kind: 'warmup', card_ref: 'warmup-now' });
+  assert.equal(live.current.warmup_id, 'warmup-now');
+  assert.equal(live.current_warmup.warmup_id, 'warmup-now');
+  assert.deepEqual(mergeStudioCurrent(realHistory, live.current, live.now), realHistory);
+
+  const reloaded = normalizeStudioContract({
+    now: { kind: 'warmup', card_ref: 'warmup-now' },
+    current_warmup: warmup,
+    next_ready: false,
+    waiting: { reason: 'queued', source_provenance: null },
+  });
+  assert.equal(reloaded.current.warmup_id, 'warmup-now', 'a hard reload reconstructs the exact warmup question');
+
+  const replacement = normalizeStudioContract({
+    now: { kind: 'real', card_ref: 'real-replacement' },
+    current: lesson('real-replacement'),
+    current_warmup: null,
+    next_ready: false,
+    waiting: { reason: 'idle', source_provenance: null },
+  }, reloaded);
+  assert.deepEqual(replacement.now, { kind: 'real', card_ref: 'real-replacement' });
+  assert.equal(replacement.current.card_id, 'real-replacement');
+  assert.equal(replacement.current_warmup, null);
+});
+
 test('auto advance is voluntary by default and needs an enabled setting, a ready Next card, and a full delay', () => {
   const auto = createAutoAdvanceState();
   assert.equal(auto.delayMs, DEFAULT_AUTO_ADVANCE_DELAY_MS);
@@ -151,6 +199,18 @@ test('auto advance only becomes eligible for an answered current lesson with a r
   assert.equal(autoAdvanceEligible(unanswered), false);
   assert.equal(autoAdvanceEligible(noReady), false);
   assert.equal(autoAdvanceEligible(answeredReady), true);
+
+  const answeredWarmupReady = normalizeStudioContract({
+    current_warmup: warmupLesson('warmup-auto', { answered: true }),
+    now: { kind: 'warmup', card_ref: 'warmup-auto' },
+    next_ready: true,
+    waiting: null,
+  });
+  assert.equal(
+    autoAdvanceEligible(answeredWarmupReady),
+    false,
+    'a local warmup keeps manual Next visible but can never be timer-promoted',
+  );
 
   const auto = createAutoAdvanceState({ enabled: true, delayMs: 10 });
   noteNextReady(auto, 100);

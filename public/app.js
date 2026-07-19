@@ -51,7 +51,9 @@
 
   function emptyStudio() {
     return {
+      now: { kind: null, card_ref: null },
       current: null,
+      current_warmup: null,
       next_ready: false,
       waiting: { reason: 'idle', source_provenance: null },
     };
@@ -160,6 +162,27 @@
     return project.cards.find((card) => card?.card_id === cardId) || null;
   }
 
+  function isWarmupCard(card) {
+    return Boolean(card && typeof card === 'object' && (
+      card.kind === 'warmup' || (typeof card.warmup_id === 'string' && card.warmup_id)
+    ));
+  }
+
+  function realCards(cards) {
+    return (Array.isArray(cards) ? cards : []).filter((card) => card && !isWarmupCard(card));
+  }
+
+  function studioNowKind(studio) {
+    return studio?.now?.kind === 'warmup' || studio?.now?.kind === 'real'
+      ? studio.now.kind
+      : null;
+  }
+
+  function currentWarmup(project) {
+    const warmup = studioNowKind(project?.studio) === 'warmup' ? project.studio.current_warmup || null : null;
+    return warmup?.warmup_id === project?.studio?.now?.card_ref ? warmup : null;
+  }
+
   function normalizeStudio(snapshot, cards, previous = null) {
     const raw = snapshot?.studio;
     if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
@@ -167,7 +190,9 @@
       // Resolve that exact pointer, never a convenient-looking unanswered card:
       // a hidden Next must not replace the answered lesson in the learner's
       // hands while a snapshot is being reconciled.
-      const currentId = typeof raw.current_card_id === 'string' ? raw.current_card_id : null;
+      const currentId = raw.now?.kind === 'real' && typeof raw.now.card_ref === 'string'
+        ? raw.now.card_ref
+        : typeof raw.current_card_id === 'string' ? raw.current_card_id : null;
       const pointerCurrent = currentId ? cards.find((card) => card?.card_id === currentId) || null : null;
       const withPointer = !Object.hasOwn(raw, 'current') && pointerCurrent ? { ...raw, current: pointerCurrent } : raw;
       const normalized = studioState?.normalizeStudioContract
@@ -178,18 +203,22 @@
     // This fallback is only for a pre-Studio legacy snapshot with no Studio
     // payload at all. Once a Studio contract exists, current is never guessed.
     const current = cards.find((card) => !card.state?.answered) || null;
-    return { ...emptyStudio(), current };
+    return {
+      ...emptyStudio(),
+      now: current ? { kind: 'real', card_ref: current.card_id } : { kind: null, card_ref: null },
+      current,
+    };
   }
 
   function applySnapshot(projectId, snapshot) {
     if (!snapshot || typeof snapshot !== 'object') return;
     const project = projectFor(projectId);
-    project.cards = Array.isArray(snapshot.cards) ? snapshot.cards : project.cards;
+    project.cards = Array.isArray(snapshot.cards) ? realCards(snapshot.cards) : project.cards;
     project.tree = snapshot.tree || project.tree;
     project.studio = normalizeStudio(snapshot, project.cards, project.studio);
     project.cards = studioState?.mergeStudioCurrent
-      ? studioState.mergeStudioCurrent(project.cards, project.studio.current)
-      : project.studio.current
+      ? studioState.mergeStudioCurrent(project.cards, project.studio.current, project.studio.now)
+      : studioNowKind(project.studio) === 'real' && project.studio.current
         ? [...project.cards.filter((card) => card?.card_id !== project.studio.current.card_id), project.studio.current]
         : project.cards;
     if (snapshot.strengths && typeof snapshot.strengths === 'object') store.strengths = snapshot.strengths;
@@ -202,8 +231,8 @@
     const project = projectFor(projectId);
     project.studio = normalizeStudio({ studio }, project.cards, project.studio);
     project.cards = studioState?.mergeStudioCurrent
-      ? studioState.mergeStudioCurrent(project.cards, project.studio.current)
-      : project.studio.current
+      ? studioState.mergeStudioCurrent(project.cards, project.studio.current, project.studio.now)
+      : studioNowKind(project.studio) === 'real' && project.studio.current
         ? [...project.cards.filter((card) => card?.card_id !== project.studio.current.card_id), project.studio.current]
         : project.cards;
   }
@@ -261,8 +290,8 @@
       trailNote.textContent = 'Osmosis only keeps learning state for projects you choose to carry.';
       return;
     }
-    const current = project.studio?.current;
-    const cards = [...project.cards];
+    const current = studioNowKind(project.studio) === 'real' ? project.studio?.current : null;
+    const cards = realCards(project.cards);
     if (current && !cards.some((card) => card.card_id === current.card_id)) cards.push(current);
     cards.sort((left, right) => Date.parse(left.created_at || '') - Date.parse(right.created_at || ''));
     trail.innerHTML = cards.length
@@ -359,21 +388,59 @@
     </article>`;
   }
 
-  function nextControl(project, current) {
+  function nextControl(project, current, { warmup = false } = {}) {
     if (!current?.state?.answered) return '';
     const studio = project.studio || emptyStudio();
     const controlState = studioState?.nextControlState?.(studio)
       || (studio.next_ready ? 'ready' : ['preparing', 'queued'].includes(studio.waiting?.reason) ? 'preparing' : 'idle');
     if (controlState === 'ready') {
-      return '<button class="next-lesson" type="button" data-next-lesson>Next lesson <span aria-hidden="true">→</span></button>';
+      return `<button class="next-lesson" type="button" data-next-lesson>${warmup ? '下一课' : 'Next lesson'} <span aria-hidden="true">→</span></button>`;
     }
     const waiting = studio.waiting;
     const hasWork = controlState === 'preparing';
     const source = waiting?.source_provenance;
+    if (warmup) {
+      return `<div class="next-waiting">
+        <button class="next-lesson next-lesson--muted" type="button" disabled>${hasWork ? '正在准备下一课…' : '暂时没有新的相关课程'}</button>
+      </div>`;
+    }
     return `<div class="next-waiting">
-      <button class="next-lesson next-lesson--muted" type="button" disabled>${hasWork ? 'Preparing next…' : 'Nothing relevant yet'}</button>
-      ${hasWork && source ? `<p>${sourceMarkup(source, { compact: true })}<span>${escapeHtml(sourceText(source))}</span></p>` : ''}
-    </div>`;
+        <button class="next-lesson next-lesson--muted" type="button" disabled>${hasWork ? 'Preparing next…' : 'Nothing relevant yet'}</button>
+        ${hasWork && source ? `<p>${sourceMarkup(source, { compact: true })}<span>${escapeHtml(sourceText(source))}</span></p>` : ''}
+      </div>`;
+  }
+
+  function renderWarmupNow(project, card) {
+    const pending = store.pendingAnswers.get(project.project_id);
+    const answered = Boolean(card.state?.answered);
+    const selectedIndex = answered ? card.state.chosen_index : pending?.cardId === card.warmup_id ? pending.index : null;
+    const feedback = answered
+      ? `<section class="answer-feedback ${card.state.correct ? 'correct' : 'incorrect'}" aria-live="polite">
+          <p class="result-label">${card.state.correct ? '答对了。' : '再想一想。'}</p>
+          <p>${escapeHtml(card.explanation || '')}</p>
+          <p>这是一张即时热身，不会写入掌握度或课程记录。</p>
+        </section>`
+      : '';
+    const warmupLabels = ['甲', '乙', '丙'];
+    const choices = Array.isArray(card.options) ? card.options.map((option, index) => {
+      const selected = selectedIndex === index;
+      const resultClass = selected
+        ? answered ? (card.state.correct ? ' selected correct' : ' selected incorrect') : ' pressed'
+        : '';
+      return `<button type="button" class="answer-option${resultClass}" data-answer-card="${escapeHtml(card.warmup_id)}" data-answer-index="${index}" aria-pressed="${selected}" ${answered || pending ? 'disabled' : ''}>
+        <span class="answer-letter">${warmupLabels[index] || '选项'}</span><span>${escapeHtml(option)}</span>
+      </button>`;
+    }).join('') : '';
+    return `<article class="lesson-card lesson-card--warmup" aria-label="即时热身">
+      <div class="card-topline"><p class="card-kicker">即时热身</p><span class="now-status">一题小练习</span></div>
+      <p class="card-concept">${escapeHtml(card.title || card.concept_name || '刚刚用到的概念')}</p>
+      <p class="source-line source-line--observed-activity"><span class="provenance-label provenance-label--observed-activity">观察到的活动</span><span class="source-copy">根据刚刚的本地操作准备</span></p>
+      <p class="lesson-copy">${escapeHtml(card.lesson || '')}</p>
+      <h3>${escapeHtml(card.question || '')}</h3>
+      <div class="answers" aria-label="答案选项">${choices}</div>
+      ${feedback}
+      ${nextControl(project, card, { warmup: true })}
+    </article>`;
   }
 
   function renderNow(project) {
@@ -381,6 +448,8 @@
     if (store.settings.global_learning === 'paused') {
       return `<article class="waiting-card waiting-card--paused"><p class="eyebrow">Learning paused</p><h3>Osmosis is not capturing or making new lessons right now.</h3><p>Your trail and past lessons are still here whenever you want them.</p></article>`;
     }
+    const warmup = currentWarmup(project);
+    if (warmup) return renderWarmupNow(project, warmup);
     const card = project.studio?.current;
     if (!card) return waitingMarkup(project.studio?.waiting);
     const pending = store.pendingAnswers.get(project.project_id);
@@ -416,7 +485,7 @@
   }
 
   function renderReview(project) {
-    const cards = project.cards.filter((card) => card.state?.answered);
+    const cards = realCards(project.cards).filter((card) => card.state?.answered);
     if (!cards.length) {
       return `<article class="waiting-card"><p class="eyebrow">Past lessons</p><h3>Your answered lessons will collect here.</h3><p>There is nothing to revise yet — keep your attention on the work in front of you.</p></article>`;
     }
@@ -640,8 +709,11 @@
 
   async function submitAnswer(projectId, cardId, index) {
     const project = projectFor(projectId);
-    const card = project.studio?.current || cardById(project, cardId);
-    if (!card || card.state?.answered || store.pendingAnswers.has(projectId)) return;
+    const warmup = currentWarmup(project);
+    const isWarmup = Boolean(warmup);
+    const card = warmup || project.studio?.current || cardById(project, cardId);
+    const expectedCardId = isWarmup ? warmup.warmup_id : card?.card_id;
+    if (!card || cardId !== expectedCardId || card.state?.answered || store.pendingAnswers.has(projectId)) return;
     noteInteraction(projectId);
     store.pendingAnswers.set(projectId, { cardId, index });
     renderStage();
@@ -649,18 +721,36 @@
       const response = await fetch(`/answer?project=${encodeURIComponent(projectId)}`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ card_id: cardId, chosen_index: index }),
       });
+      if (isWarmup && response.status === 409) {
+        store.pendingAnswers.delete(projectId);
+        const refreshed = await refreshProjectSnapshot(projectId);
+        showToast(refreshed
+          ? '这张热身题已被同一活动的正式课程替换。'
+          : '这张热身题已被替换；页面会在重新连接后更新。');
+        return;
+      }
       if (!response.ok) throw new Error('Answer rejected');
       const result = await response.json();
       const answered = { ...card, state: { answered: true, chosen_index: index, correct: result.correct }, explanation: result.explanation };
-      project.studio.current = answered;
-      project.cards = project.cards.map((item) => item.card_id === cardId ? answered : item);
-      store.strengths[answered.concept_id] = { ...(store.strengths[answered.concept_id] || {}), name: answered.concept_name, strength: result.strength };
+      if (isWarmup || result.warmup === true) {
+        // Warmups deliberately have no profile/tree/history side effects. The
+        // frozen answer body is identical; only the server's `now.kind`
+        // routes it to the isolated warmup state.
+        if (studioNowKind(project.studio) === 'warmup' && project.studio.now.card_ref === cardId) {
+          project.studio.current_warmup = answered;
+          project.studio.current = answered;
+        }
+      } else {
+        project.studio.current = answered;
+        project.cards = project.cards.map((item) => item.card_id === cardId ? answered : item);
+        store.strengths[answered.concept_id] = { ...(store.strengths[answered.concept_id] || {}), name: answered.concept_name, strength: result.strength };
+      }
       store.pendingAnswers.delete(projectId);
       render();
     } catch {
       store.pendingAnswers.delete(projectId);
       renderStage();
-      showToast('Osmosis could not save that answer. Please try again.');
+      showToast(isWarmup ? '这张热身题暂时无法保存，请稍后再试。' : 'Osmosis could not save that answer. Please try again.');
     }
   }
 
@@ -687,9 +777,11 @@
         if (result.studio) applyStudio(projectId, result.studio);
         else {
           project.studio.current = result.card;
+          project.studio.current_warmup = null;
+          project.studio.now = { kind: 'real', card_ref: result.card.card_id };
           project.studio.next_ready = false;
           project.cards = studioState?.mergeStudioCurrent
-            ? studioState.mergeStudioCurrent(project.cards, result.card)
+            ? studioState.mergeStudioCurrent(project.cards, result.card, project.studio.now)
             : [...project.cards.filter((card) => card.card_id !== result.card.card_id), result.card];
         }
         if (store.activeProjectId === projectId) render();
@@ -701,6 +793,19 @@
       if (store.activeProjectId === projectId) render();
     } catch {
       if (!auto) showToast('Osmosis could not open the next lesson yet.');
+    }
+  }
+
+  async function refreshProjectSnapshot(projectId) {
+    try {
+      const response = await fetch(`/projects/${encodeURIComponent(projectId)}/snapshot`, { cache: 'no-store' });
+      if (!response.ok) throw new Error('Snapshot unavailable');
+      applySnapshot(projectId, await response.json());
+      if (store.activeProjectId === projectId) render();
+      else renderTabs();
+      return true;
+    } catch {
+      return false;
     }
   }
 
@@ -755,8 +860,10 @@
       const body = await response.json();
       if (Array.isArray(body.cards)) {
         project.cards = studioState?.mergeStudioCurrent
-          ? studioState.mergeStudioCurrent(body.cards, project.studio.current)
-          : body.cards;
+          ? studioState.mergeStudioCurrent(realCards(body.cards), project.studio.current, project.studio.now)
+          : studioNowKind(project.studio) === 'real' && project.studio.current
+            ? [...realCards(body.cards).filter((card) => card.card_id !== project.studio.current.card_id), project.studio.current]
+            : realCards(body.cards);
       }
       project.reviewLoaded = true;
       if (store.activeProjectId === projectId && store.studioView === 'review') renderStage();
@@ -867,6 +974,14 @@
     const project = projectFor(projectId);
     markActivity(projectId);
     if (type === 'card') {
+      if (isWarmupCard(payload)) {
+        // Warmup payloads travel only through the authoritative Studio
+        // projection. A compatibility card event must never add one to the
+        // real history/review surface.
+        if (projectId === store.activeProjectId) render();
+        else renderTabs();
+        return;
+      }
       project.cards = project.cards.filter((card) => card.card_id !== payload.card_id);
       project.cards.push(payload);
       // A card event is compatibility data, not a command to move the

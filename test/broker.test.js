@@ -591,6 +591,10 @@ test('a Studio candidate rejected at the global ceiling resumes fairly when its 
   await waitFor(
     () => waitingChannel.state.cards.length === 1 && waitingChannel.studio.currentCard()?.source?.task === 'Wait for the fair Studio retry',
     'the freed global slot to wake the waiting channel',
+    // Outbox delivery intentionally adds two durable writes (state+outbox,
+    // then its cleared acknowledgement) before the learner can see a card.
+    // Keep this polling assertion about fairness rather than local disk speed.
+    600,
   );
   await broker.whenIdle();
   assert.equal(waitingChannel.state.studio.candidates.length, 0);

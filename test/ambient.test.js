@@ -117,6 +117,86 @@ test('Ambient Watch keeps observed metadata on a strict allowlist', () => {
   assert.deepEqual(signalsFromEvent(ignoredExecEvent('node build.js', '/tmp/sydney-harbour')), []);
 });
 
+test('Ambient Watch offers an eligible event to the warmup fast path before normal 45-second aggregation', async (t) => {
+  const { projectDir, sessionsDir } = await setup(t);
+  const clock = { value: Date.now() };
+  const reports = [];
+  const observations = [];
+  const canonicalProject = await fs.realpath(projectDir);
+  const watcher = createAmbientWatcher({
+    config: {
+      ambientEnabled: true,
+      ambientEmitIntervalMs: 45_000,
+      cwd: projectDir,
+      sessionsDir,
+    },
+    now: () => clock.value,
+    resolveProject(cwd) {
+      return cwd === canonicalProject
+        ? { project_id: 'project-a-0123456789', root: canonicalProject }
+        : { registered: false, root: cwd };
+    },
+    onReport(report) {
+      reports.push(report);
+    },
+    onWarmupCandidate(observation) {
+      observations.push(observation);
+      // This models the broker's strict catalog check: only the exact `rg`
+      // argv is claimed by the no-generator warmup path. Every other signal
+      // remains on the ordinary aggregation path.
+      return {
+        handled: observation.event?.payload?.input === JSON.stringify({ cmd: 'rg harbour src', workdir: projectDir }),
+      };
+    },
+  });
+  t.after(() => watcher.stop());
+
+  await watcher.poll();
+  const rollout = await createRollout(sessionsDir, clock.value, { name: 'warmup-fast-path' });
+
+  // The callback runs in this poll, before the configured 45-second cadence.
+  // Its handled result must prevent this event from entering the old bucket.
+  await appendEvents(rollout, clock.value, [execEvent('rg harbour src', projectDir)]);
+  await watcher.poll();
+  assert.equal(observations.length, 1);
+  assert.equal(reports.length, 0);
+
+  const eligible = observations[0];
+  assert.equal(eligible.activity_epoch_id, eligible.observation_id);
+  assert.match(eligible.observation_id, /^[a-f0-9]{48}$/);
+  assert.match(eligible.rollout_identity, /^[a-f0-9]{48}$/);
+  assert.deepEqual(eligible.route, {
+    project_id: 'project-a-0123456789',
+    reason: '',
+    registered: true,
+  });
+  assert.deepEqual(eligible.report.stack_hints, ['rg']);
+  assert.match(eligible.report.what_i_did, /ran rg/);
+  assert.doesNotMatch(JSON.stringify(eligible.report), /project-a|warmup-fast-path|harbour|src/);
+  assert.equal(Object.hasOwn(eligible.route, 'root'), false);
+
+  // A command outside the catalog still reaches the callback, but an
+  // unhandled result falls through to the normal aggregation/delivery path.
+  clock.value += 1;
+  await appendEvents(rollout, clock.value, [execEvent('node build.js', projectDir)]);
+  await watcher.poll();
+  assert.equal(observations.length, 2);
+  assert.equal(reports.length, 1, 'the first unhandled signal follows the normal immediate bucket delivery');
+  assert.deepEqual(reports[0].stack_hints, ['node']);
+
+  // Subsequent ordinary signals retain the original 45-second pace; fast
+  // path handling did not create or poison a normal aggregation bucket.
+  clock.value += 1;
+  await appendEvents(rollout, clock.value, [execEvent('npm test', projectDir)]);
+  await watcher.poll();
+  assert.equal(reports.length, 1);
+  clock.value += 45_000;
+  await fs.utimes(rollout, new Date(clock.value), new Date(clock.value));
+  await watcher.poll();
+  assert.equal(reports.length, 2);
+  assert.deepEqual(reports[1].stack_hints, ['npm']);
+});
+
 test('Ambient Watch attaches existing files at EOF, emits sanitized cards, and paces each session', async (t) => {
   const { projectDir, sessionsDir } = await setup(t);
   const clock = { value: Date.now() };

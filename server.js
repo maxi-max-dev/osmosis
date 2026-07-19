@@ -277,6 +277,10 @@ async function main() {
         config,
         log,
         onReport: (report, project) => broker.acceptLocalReport(report, project?.project_id),
+        onWarmupCandidate: (observation, project) => broker.acceptWarmupCandidate(
+          project?.project_id || observation?.route?.project_id,
+          observation,
+        ),
         onSuppressed: (entry) => broker.recordUnregisteredActivity(entry),
         resolveProject: (cwd) => broker.resolveAmbientProject(cwd),
       });

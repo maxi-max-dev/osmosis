@@ -282,3 +282,27 @@ test('report traces retain one report id through delivery, refusal, and provider
   );
   assert.equal(failing.events.some((event) => event.type === 'status' && event.payload.state === 'failed'), true);
 });
+
+test('Studio generation returns terminal metadata without bypassing the Studio ledger outbox', async () => {
+  const directLedger = [];
+  const failing = createHarness({
+    ledger: { append: (entry) => directLedger.push(entry) },
+    provider: {
+      name: 'failing-provider',
+      supportsLiveCurriculum: false,
+      isSlow: false,
+      async generateCard() {
+        throw new Error('intentional Studio provider failure');
+      },
+    },
+  });
+  const outcome = await failing.pipeline.generateForStudio({
+    ...observedReport('studio-failure'),
+    report_id: 'studio-failure-report',
+  });
+
+  assert.equal(outcome.state, 'failed');
+  assert.equal(outcome.reason, 'generation-failed');
+  assert.equal(directLedger.length, 0, 'only Studio may write the terminal failure after its state/outbox persistence');
+  assert.equal(outcome.status.state, 'failed');
+});

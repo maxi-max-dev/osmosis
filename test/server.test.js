@@ -1445,7 +1445,7 @@ test('Ambient Watch drives a registered project from an answered Now to a live r
       payload: {
         type: 'custom_tool_call',
         name: 'exec',
-        input: JSON.stringify({ cmd: 'node build.js', workdir: projectCwd }),
+        input: JSON.stringify({ cmd: 'rg lesson', workdir: projectCwd }),
       },
     })}\n`,
   );

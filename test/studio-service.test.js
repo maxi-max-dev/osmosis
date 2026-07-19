@@ -161,6 +161,29 @@ test('Studio suppresses a concept mastered while its first generated lesson is w
   assert.equal(ledger.some((entry) => entry.card_id === 'card-1' && entry.event === 'delivery'), false);
 });
 
+test('Studio persists a terminal provider outcome with its activity epoch before publishing status', async () => {
+  const { events, ledger, studio } = harness({
+    generate: async () => ({
+      reason: 'generation-failed',
+      state: 'failed',
+      status: { state: 'failed', message: 'The provider failed safely.' },
+    }),
+  });
+  const epochReport = { ...report(99), activity_epoch_id: 'observation-terminal-outbox' };
+  studio.enqueueReport(epochReport);
+  await studio.whenIdle();
+
+  const failure = ledger.find((entry) => entry.event === 'failure' && entry.report_id === 'report-99');
+  assert.equal(failure?.activity_epoch_id, 'observation-terminal-outbox');
+  assert.equal(failure?.reason, 'generation-failed');
+  assert.equal(failure?.state, 'failed');
+  assert.equal(
+    events.some((event) => event.type === 'status' && event.payload.state === 'failed'),
+    true,
+    'the terminal status is published by Studio only after its ledger outbox flushes',
+  );
+});
+
 test('Studio refuses a mastered concept before it can enter the hidden ready buffer', async () => {
   let generated = 0;
   let releaseReadyGeneration;
