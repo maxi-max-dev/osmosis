@@ -293,6 +293,58 @@ test('profile lock never evicts a live holder just because its lease is old', as
   assert.deepEqual(JSON.parse(await fs.readFile(lockPath, 'utf8')), liveRecord);
 });
 
+test('profile lock recovers an aged incomplete publication without breaking a complete live lock', async (t) => {
+  const directory = await temporaryDirectory(t);
+  const lockPath = path.join(directory, 'profile.json.lock');
+  const oldDate = new Date('2000-01-01T00:00:00.000Z');
+  const nowMs = Date.parse('2026-07-19T00:00:00.000Z');
+  const staleOptions = {
+    lockPath,
+    now: () => nowMs,
+    staleMs: 1,
+    retryMs: 1,
+    timeoutMs: 100,
+    isProcessAlive: () => false,
+  };
+
+  // Simulate the old open('wx') -> write crash window. The new temp + link
+  // publication path never creates a public lock in this state.
+  await fs.writeFile(lockPath, '', 'utf8');
+  await fs.utimes(lockPath, oldDate, oldDate);
+  assert.equal(await isLockStale(lockPath, staleOptions), true);
+  const recovered = await acquireProfileLock(staleOptions);
+  assert.deepEqual(JSON.parse(await fs.readFile(lockPath, 'utf8')), recovered.record);
+  await recovered.release();
+  await assert.rejects(fs.stat(lockPath), { code: 'ENOENT' });
+
+  const liveRecord = {
+    pid: process.pid,
+    created_at: oldDate.toISOString(),
+    token: 'complete-live-owner-token',
+  };
+  await fs.writeFile(lockPath, `${JSON.stringify(liveRecord)}\n`, 'utf8');
+  let elapsed = nowMs;
+  let livenessChecks = 0;
+  await assert.rejects(
+    acquireProfileLock({
+      ...staleOptions,
+      now: () => elapsed,
+      timeoutMs: 2,
+      sleepFn: async () => {
+        elapsed += 1;
+      },
+      isProcessAlive(pid) {
+        assert.equal(pid, process.pid);
+        livenessChecks += 1;
+        return true;
+      },
+    }),
+    { code: 'ELOCKED' },
+  );
+  assert.equal(livenessChecks > 0, true);
+  assert.deepEqual(JSON.parse(await fs.readFile(lockPath, 'utf8')), liveRecord);
+});
+
 test('profile lock reclaims a dead holder and restores a replacement that races stale recovery', async (t) => {
   const directory = await temporaryDirectory(t);
   const lockPath = path.join(directory, 'profile.json.lock');
