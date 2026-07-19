@@ -36,7 +36,7 @@ function harness({ generate = null, persistCard = null } = {}) {
   const persisted = [];
   const events = [];
   const ledger = [];
-  const state = { cards: [], studio: null };
+  const state = { cards: [], studio: null, strengths: {} };
   const studio = createStudioService({
     state,
     generate,
@@ -74,7 +74,7 @@ test('Studio coalesces candidates at the two-signal watermark and ledgers the me
 
 test('Studio keeps an answered Now card stable while a ready buffer lights Next, suppresses a third card, and promotes explicitly', async () => {
   let generated = 0;
-  const { events, state, studio } = harness({
+  const { events, ledger, state, studio } = harness({
     generate: async () => card(++generated),
   });
   studio.enqueueReport(report(1));
@@ -114,6 +114,112 @@ test('Studio keeps an answered Now card stable while a ready buffer lights Next,
   assert.equal(state.studio.ready_card, null);
   assert.equal(state.cards.some((item) => item.card_id === 'card-2'), true, 'promotion moves the buffered card into lesson history');
   assert.deepEqual(events.filter((event) => event.type === 'card').map((event) => event.payload.card_id), ['card-1', 'card-2']);
+  assert.equal(ledger.some((entry) => (
+    entry.card_id === 'card-2'
+      && entry.event === 'promotion'
+      && entry.reason === 'learner-next'
+      && entry.state === 'delivered'
+  )), true, 'promotion closes the hidden-card delivery trail instead of silently clearing it');
+});
+
+test('Studio suppresses a concept mastered while its first generated lesson is waiting for placement', async () => {
+  let releaseGeneration;
+  const generationBlocked = new Promise((resolve) => { releaseGeneration = resolve; });
+  let generationStarted;
+  const started = new Promise((resolve) => { generationStarted = resolve; });
+  const { ledger, state, studio } = harness({
+    generate: async () => {
+      generationStarted();
+      await generationBlocked;
+      return card(1);
+    },
+  });
+
+  studio.enqueueReport(report(1));
+  await started;
+  state.strengths['concept-1'] = { strength: 2 };
+  releaseGeneration();
+  await studio.whenIdle();
+
+  assert.equal(studio.currentCard(), null);
+  assert.equal(studio.readyCard(), null);
+  assert.equal(state.cards.length, 0);
+  assert.equal(ledger.some((entry) => (
+    entry.report_id === 'report-1'
+      && entry.card_id === 'card-1'
+      && entry.event === 'refusal'
+      && entry.reason === 'mastered'
+      && entry.state === 'suppressed'
+  )), true);
+  assert.equal(ledger.some((entry) => entry.card_id === 'card-1' && entry.event === 'delivery'), false);
+});
+
+test('Studio refuses a mastered concept before it can enter the hidden ready buffer', async () => {
+  let generated = 0;
+  let releaseReadyGeneration;
+  const readyGenerationBlocked = new Promise((resolve) => { releaseReadyGeneration = resolve; });
+  let readyGenerationStarted;
+  const readyStarted = new Promise((resolve) => { readyGenerationStarted = resolve; });
+  const { ledger, state, studio } = harness({
+    generate: async () => {
+      generated += 1;
+      if (generated === 2) {
+        readyGenerationStarted();
+        await readyGenerationBlocked;
+      }
+      return card(generated);
+    },
+  });
+
+  studio.enqueueReport(report(1));
+  await studio.whenIdle();
+  state.cards[0].state = { answered: true, chosen_index: 1, correct: false };
+
+  studio.enqueueReport(report(2));
+  await readyStarted;
+  state.strengths['concept-2'] = { strength: 2 };
+  releaseReadyGeneration();
+  await studio.whenIdle();
+
+  assert.equal(studio.readyCard(), null);
+  assert.equal(studio.projection().next_ready, false);
+  assert.equal(ledger.some((entry) => (
+    entry.report_id === 'report-2'
+      && entry.card_id === 'card-2'
+      && entry.event === 'refusal'
+      && entry.reason === 'mastered'
+      && entry.state === 'suppressed'
+  )), true);
+  assert.equal(ledger.some((entry) => entry.card_id === 'card-2' && entry.event === 'delivery'), false);
+});
+
+test('Studio records a mastered suppression when cleanup removes a same-concept hidden lesson', async () => {
+  let generated = 0;
+  const { ledger, state, studio } = harness({
+    generate: async () => {
+      const generatedCard = card(++generated);
+      if (generated === 2) {
+        generatedCard.concept_id = 'concept-1';
+        generatedCard.concept_name = 'Concept 1';
+      }
+      return generatedCard;
+    },
+  });
+  studio.enqueueReport(report(1));
+  await studio.whenIdle();
+  state.cards[0].state = { answered: true, chosen_index: 0, correct: true };
+
+  studio.enqueueReport(report(2));
+  await studio.whenIdle();
+
+  assert.equal(await studio.clearPendingByConcept('concept-1', 'card-1'), 1);
+  assert.equal(studio.readyCard(), null);
+  assert.equal(ledger.some((entry) => (
+    entry.card_id === 'card-2'
+      && entry.event === 'refusal'
+      && entry.reason === 'mastered'
+      && entry.state === 'suppressed'
+  )), true);
 });
 
 test('auto-advance is opt-in and an interaction invalidates a pending automatic advance', async () => {

@@ -398,6 +398,38 @@ async function writeCodexShim(directory) {
   return shimPath;
 }
 
+async function writeSequencedCodexShim(directory) {
+  const shimPath = path.join(directory, 'sequenced-fake-codex.js');
+  const counterPath = path.join(directory, 'sequenced-fake-codex-count.txt');
+  const tree = JSON.stringify({ nodes: codexTreeNodes() });
+  const cards = [
+    {
+      concept_id: 'http',
+      concept_name: 'HTTP',
+      lesson: 'HTTP carries a request to a server and brings a response back, like a labeled envelope travelling between two places.',
+      question: 'What does HTTP help your app do?',
+      options: ['Send a request and receive a response.', 'Draw every screen pixel.', 'Store passwords in a browser tab.'],
+      correct_index: 0,
+      explanation: 'HTTP carries a request to a server and brings a response back.',
+    },
+    {
+      concept_id: 'json',
+      concept_name: 'JSON data',
+      lesson: 'JSON gives a program a shared label system for small pieces of information, like a packing list that both sender and receiver can read.',
+      question: 'Why is JSON useful between parts of an app?',
+      options: ['It gives both sides a predictable way to label information.', 'It turns every page into a 3D scene.', 'It prevents every network request.'],
+      correct_index: 0,
+      explanation: 'JSON is a shared, predictable structure for exchanging information.',
+    },
+  ].map(JSON.stringify);
+  await fs.writeFile(
+    shimPath,
+    `#!/usr/bin/env node\n'use strict';\nconst fs = require('node:fs');\nconst args = process.argv.slice(2);\nconst outputPath = args[args.indexOf('--output-last-message') + 1];\nconst schemaPath = args[args.indexOf('--output-schema') + 1];\nconst tree = ${JSON.stringify(tree)};\nconst cards = ${JSON.stringify(cards)};\nconst counterPath = ${JSON.stringify(counterPath)};\nlet result = tree;\nif (!schemaPath.endsWith('tree-output.schema.json')) {\n  let count = 0;\n  try { count = Number.parseInt(fs.readFileSync(counterPath, 'utf8'), 10) || 0; } catch {}\n  fs.writeFileSync(counterPath, String(count + 1));\n  result = cards[Math.min(count, cards.length - 1)];\n}\nfs.writeFileSync(outputPath, result);\nprocess.stdout.write(result);\n`,
+    { mode: 0o755 },
+  );
+  return shimPath;
+}
+
 async function writeFailingCodexShim(directory) {
   const shimPath = path.join(directory, 'failing-codex.js');
   await fs.writeFile(
@@ -1121,6 +1153,10 @@ test('Ambient Watch drives a registered project from an answered Now to a live r
   const primaryCwd = await temporaryProject(cleanup);
   const projectCwd = await temporaryProject(cleanup);
   const sessionsDir = await temporaryProject(cleanup);
+  // The none provider intentionally uses one template concept. A sequenced
+  // Codex shim makes this end-to-end contract prove the real case instead:
+  // answer HTTP correctly, then let an observed event generate distinct JSON.
+  const codexCommand = await writeSequencedCodexShim(primaryCwd);
   const now = new Date();
   const rolloutDirectory = path.join(
     sessionsDir,
@@ -1141,6 +1177,8 @@ test('Ambient Watch drives a registered project from an answered Now to a live r
       OSMOSIS_AMBIENT: '1',
       OSMOSIS_AMBIENT_EMIT_INTERVAL_MS: '1',
       OSMOSIS_CARD_PACING_MS: '60000',
+      OSMOSIS_CODEX_COMMAND: codexCommand,
+      OSMOSIS_PROVIDER: 'codex',
       OSMOSIS_SESSIONS_DIR: sessionsDir,
       OSMOSIS_TEMPLATE_DELAY_MS: '60000',
     },
@@ -1202,14 +1240,15 @@ test('Ambient Watch drives a registered project from an answered Now to a live r
     'the registered project starter card',
   )).data;
   assert.equal(firstCard.source.kind, 'agent');
+  assert.match(firstCard.concept_id, /:http$/);
 
   const answered = await fetch(`http://127.0.0.1:${port}/answer?project=${encodeURIComponent(registration.project_id)}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ card_id: firstCard.card_id, chosen_index: 1 }),
+    body: JSON.stringify({ card_id: firstCard.card_id, chosen_index: 0 }),
   });
   assert.equal(answered.status, 200);
-  assert.equal((await answered.json()).correct, false);
+  assert.equal((await answered.json()).correct, true);
 
   // Let the watcher complete the empty-file EOF baseline, then append an
   // actual Codex exec rollout event. This exercises watcher -> broker ->
@@ -1254,6 +1293,8 @@ test('Ambient Watch drives a registered project from an answered Now to a live r
   const advanced = await next.json();
   assert.equal(advanced.advanced, true);
   assert.equal(advanced.card.source.kind, 'observed-activity');
+  assert.match(advanced.card.concept_id, /:json$/);
+  assert.notEqual(advanced.card.concept_id, firstCard.concept_id, 'the observed follow-up is a distinct unmastered concept');
   assert.equal(advanced.studio.current.card_id, advanced.card.card_id);
   assert.equal(advanced.studio.next_ready, false);
 
@@ -1265,6 +1306,70 @@ test('Ambient Watch drives a registered project from an answered Now to a live r
     'the promoted observed Next lesson',
   );
   assert.equal(promoted.data.next_ready, false);
+});
+
+test('a mono-concept mastered ready card is honestly suppressed instead of leaving a misleading delivered trail', { timeout: 10_000 }, async (t) => {
+  const cleanup = createTestCleanup(t);
+  const cwd = await temporaryProject(cleanup);
+  const { runner, port } = await startHttpServer(cleanup, {
+    cwd,
+    extraEnv: { OSMOSIS_CARD_PACING_MS: '60000', OSMOSIS_TEMPLATE_DELAY_MS: '60000' },
+  });
+  const stream = await openTrackedEvents(cleanup, port);
+  assert.equal((await stream.nextEvent()).type, 'snapshot');
+
+  runner.child.stdin.write(`${JSON.stringify(reportMessage(1, 'First mono report', 'Created the first template lesson.'))}\n`);
+  await waitFor(() => runner.stdoutLines().length === 1, 'the first mono report acknowledgement');
+  const firstCard = (await nextEventOfType(stream, 'card')).data;
+
+  // Do this before answering the first card: the second template lesson is
+  // legitimately buffered, then the correct answer makes the shared concept
+  // gold and must close that buffer with an explicit ledger refusal.
+  runner.child.stdin.write(`${JSON.stringify(reportMessage(2, 'Second mono report', 'Created the same template concept for the hidden buffer.'))}\n`);
+  await waitFor(() => runner.stdoutLines().length === 2, 'the second mono report acknowledgement');
+  await nextEventMatching(
+    stream,
+    (event) => event.type === 'studio' && event.data.next_ready === true,
+    'the temporary same-concept ready buffer',
+  );
+
+  const projectId = (await health(port)).default_project_id;
+  const buffered = await waitFor(async () => {
+    const document = JSON.parse(await fs.readFile(path.join(cwd, '.osmosis', 'cards.json'), 'utf8'));
+    return document.studio?.ready_card || null;
+  }, 'the durable same-concept ready card');
+  assert.equal(buffered.concept_id, firstCard.concept_id);
+
+  const answered = await fetch(`http://127.0.0.1:${port}/answer`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ card_id: firstCard.card_id, chosen_index: 0 }),
+  });
+  assert.equal(answered.status, 200);
+  assert.equal((await answered.json()).strength, 2);
+
+  const idleSnapshot = await waitFor(async () => {
+    const response = await fetch(`http://127.0.0.1:${port}/projects/${encodeURIComponent(projectId)}/snapshot`);
+    const snapshot = await response.json();
+    return snapshot.studio.next_ready === false && snapshot.studio.waiting?.reason === 'idle' ? snapshot : null;
+  }, 'the honest idle Studio state after mastered cleanup');
+  assert.equal(idleSnapshot.studio.current.card_id, firstCard.card_id);
+  assert.equal(idleSnapshot.studio.current.state.answered, true);
+
+  const activity = await waitFor(async () => {
+    const response = await fetch(`http://127.0.0.1:${port}/ledger?project=${encodeURIComponent(projectId)}&limit=100`);
+    const body = await response.json();
+    const records = body.entries.filter((entry) => entry.card_id === buffered.card_id);
+    return records.some((entry) => entry.event === 'refusal' && entry.reason === 'mastered' && entry.state === 'suppressed')
+      ? records
+      : null;
+  }, 'the terminal mastered ledger trace for the cleared buffer');
+  assert.equal(activity.some((entry) => entry.event === 'delivery' && entry.state === 'delivered'), true);
+  const final = activity.at(-1);
+  assert.deepEqual(
+    { event: final.event, reason: final.reason, state: final.state },
+    { event: 'refusal', reason: 'mastered', state: 'suppressed' },
+  );
 });
 
 test('record mode creates a clean replay from reports but excludes starter cards and requeues', { timeout: 10_000 }, async (t) => {
