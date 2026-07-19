@@ -311,7 +311,15 @@ async function main() {
       return;
     }
     const channel = await broker.ensureChannel();
-    if (!channel || channel.state.cards.some((card) => !card.state.answered)) {
+    // A Studio's hidden Next card deliberately lives outside the historical
+    // `cards` array. Treat that one-buffer record as an occupied lesson too,
+    // so the gentle template starter cannot inject a second candidate while
+    // the learner has a ready Next waiting for an explicit click.
+    if (
+      !channel
+      || channel.state.cards.some((card) => !card.state.answered)
+      || channel.studio?.readyCard?.()
+    ) {
       return;
     }
     // A starter follows the same bounded Studio path as every other signal;

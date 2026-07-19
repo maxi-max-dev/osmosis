@@ -32,7 +32,7 @@ function card(number) {
   };
 }
 
-function harness({ generate = null } = {}) {
+function harness({ generate = null, persistCard = null } = {}) {
   const persisted = [];
   const events = [];
   const ledger = [];
@@ -40,6 +40,7 @@ function harness({ generate = null } = {}) {
   const studio = createStudioService({
     state,
     generate,
+    persistCard,
     hub: { broadcast: (type, payload) => events.push({ type, payload }) },
     ledger: { append: (entry) => ledger.push(entry) },
     persistence: {
@@ -80,13 +81,14 @@ test('Studio keeps an answered Now card stable while a ready buffer lights Next,
   await studio.whenIdle();
 
   assert.equal(state.studio.current_card_id, 'card-1');
-  assert.equal(state.studio.ready_card_id, null);
+  assert.equal(state.studio.ready_card, null);
   state.cards.find((item) => item.card_id === 'card-1').state = { answered: true, chosen_index: 1, correct: false };
 
   studio.enqueueReport(report(2));
   await studio.whenIdle();
 
-  assert.equal(state.studio.ready_card_id, 'card-2');
+  assert.equal(state.studio.ready_card.card_id, 'card-2');
+  assert.equal(state.cards.some((item) => item.card_id === 'card-2'), false, 'the buffer is the sole hidden-card record');
   studio.enqueueReport(report(3));
   await studio.whenIdle();
 
@@ -109,7 +111,8 @@ test('Studio keeps an answered Now card stable while a ready buffer lights Next,
   const advanced = await studio.next();
   assert.deepEqual({ advanced: advanced.advanced, state: advanced.state }, { advanced: true, state: 'advanced' });
   assert.equal(studio.currentCardId(), 'card-2');
-  assert.equal(state.studio.ready_card_id, null);
+  assert.equal(state.studio.ready_card, null);
+  assert.equal(state.cards.some((item) => item.card_id === 'card-2'), true, 'promotion moves the buffered card into lesson history');
   assert.deepEqual(events.filter((event) => event.type === 'card').map((event) => event.payload.card_id), ['card-1', 'card-2']);
 });
 
@@ -153,4 +156,63 @@ test('restart normalization coalesces an interrupted generation instead of dropp
   assert.deepEqual(restored.candidates[0].report_ids, ['report-1', 'report-2']);
   assert.deepEqual(restored.candidates[1].report_ids, ['report-3']);
   assert.match(restored.candidates[0].report.task, /Milestone 1.*Milestone 2/);
+});
+
+test('legacy ready pointers normalize into one embedded hidden-buffer record', () => {
+  const now = card(1);
+  now.state = { answered: true, chosen_index: 1, correct: false };
+  const next = card(2);
+  const restored = normalizeStudioState({
+    current_card_id: now.card_id,
+    ready_card_id: next.card_id,
+  }, [now, next]);
+
+  assert.equal(restored.ready_card?.card_id, next.card_id);
+  assert.equal(Object.hasOwn(restored, 'ready_card_id'), false);
+  const snapshot = snapshotFor({ cards: [now], studio: restored, strengths: {}, tree: { meta: {}, nodes: [] } });
+  assert.equal(snapshot.studio.next_ready, true);
+  assert.equal(JSON.stringify(snapshot).includes(next.question), false);
+});
+
+test('a reload interleaving cannot orphan a generated ready card from the Studio buffer', async () => {
+  let generated = 0;
+  let releaseEligibility;
+  const eligibilityBlocked = new Promise((resolve) => { releaseEligibility = resolve; });
+  let readyEligibilityStarted;
+  const readyEligibility = new Promise((resolve) => { readyEligibilityStarted = resolve; });
+  const { state, studio } = harness({
+    generate: async () => card(++generated),
+    persistCard: async (_card, placement) => {
+      if (placement === 'ready') {
+        readyEligibilityStarted();
+        await eligibilityBlocked;
+      }
+      return true;
+    },
+  });
+
+  studio.enqueueReport(report(1));
+  await studio.whenIdle();
+  const now = state.cards.find((item) => item.card_id === 'card-1');
+  now.state = { answered: true, chosen_index: 1, correct: false };
+
+  studio.enqueueReport(report(2));
+  await readyEligibility;
+
+  // This is the old takeover window: a disk hydration replaces the Studio
+  // object while asynchronous delivery eligibility is still pending. The
+  // complete hidden card is committed only after that await, so it lands in
+  // the replacement Studio object rather than becoming an unseen array card.
+  state.cards = [now];
+  state.studio = normalizeStudioState({ current_card_id: now.card_id }, state.cards);
+  releaseEligibility();
+  await studio.whenIdle();
+
+  assert.equal(state.cards.some((item) => item.card_id === 'card-2'), false);
+  assert.equal(state.studio.ready_card?.card_id, 'card-2');
+  assert.equal(studio.projection().next_ready, true);
+  assert.equal(studio.projection().waiting, null);
+  const advanced = await studio.next();
+  assert.equal(advanced.card.card_id, 'card-2');
+  assert.equal(state.studio.ready_card, null);
 });

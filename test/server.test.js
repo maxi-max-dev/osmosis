@@ -1116,6 +1116,157 @@ test('Studio keeps answered Now through live readiness and reload, then promotes
   }, 'the watermark refill after promotion');
 });
 
+test('Ambient Watch drives a registered project from an answered Now to a live ready Next over the real HTTP and SSE surface', { timeout: 12_000 }, async (t) => {
+  const cleanup = createTestCleanup(t);
+  const primaryCwd = await temporaryProject(cleanup);
+  const projectCwd = await temporaryProject(cleanup);
+  const sessionsDir = await temporaryProject(cleanup);
+  const now = new Date();
+  const rolloutDirectory = path.join(
+    sessionsDir,
+    String(now.getFullYear()),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+  );
+  const rolloutPath = path.join(rolloutDirectory, 'rollout-studio-flow.jsonl');
+  await fs.mkdir(rolloutDirectory, { recursive: true });
+  // Existing files attach at EOF. Precreating this empty valid rollout file
+  // makes the following append a real observer event rather than history.
+  await fs.writeFile(rolloutPath, '');
+
+  const { port } = await startHttpServer(cleanup, {
+    activate: false,
+    cwd: primaryCwd,
+    extraEnv: {
+      OSMOSIS_AMBIENT: '1',
+      OSMOSIS_AMBIENT_EMIT_INTERVAL_MS: '1',
+      OSMOSIS_CARD_PACING_MS: '60000',
+      OSMOSIS_SESSIONS_DIR: sessionsDir,
+      OSMOSIS_TEMPLATE_DELAY_MS: '60000',
+    },
+  });
+
+  const pendingRegistration = await fetch(`http://127.0.0.1:${port}/internal/register`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ root: projectCwd }),
+  });
+  assert.equal(pendingRegistration.status, 200);
+  const pending = await pendingRegistration.json();
+  assert.equal(typeof pending.project_id, 'string');
+
+  const activation = await fetch(`http://127.0.0.1:${port}/activation?project=${encodeURIComponent(pending.project_id)}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      auto_advance: false,
+      capture_mode: 'experimental-ambient',
+      carry: true,
+      lesson_locale: 'en',
+    }),
+  });
+  assert.equal(activation.status, 200);
+
+  // Re-register after Carry so the frozen relay route receives a live
+  // capability, then use HTTP to deliver the focused starter/Now card.
+  const registrationResponse = await fetch(`http://127.0.0.1:${port}/internal/register`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ root: projectCwd }),
+  });
+  const registration = await registrationResponse.json();
+  assert.equal(registrationResponse.status, 200);
+  assert.equal(registration.project_id, pending.project_id);
+  assert.equal(typeof registration.token, 'string');
+
+  const stream = await openTrackedEvents(cleanup, port);
+  assert.equal((await stream.nextEvent()).type, 'snapshot');
+  assert.equal((await stream.nextEvent()).type, 'snapshot-v2');
+
+  const starter = await fetch(`http://127.0.0.1:${port}/internal/reports?project=${encodeURIComponent(registration.project_id)}`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-osmosis-token': registration.token,
+    },
+    body: JSON.stringify({
+      task: 'Starter lesson',
+      what_i_did: 'Delivered the first focused Studio question through the registered project relay.',
+      stack_hints: ['Node.js', 'HTTP'],
+    }),
+  });
+  assert.equal(starter.status, 202);
+  const firstCard = (await nextEventMatching(
+    stream,
+    (event) => event.type === 'project-card' && event.data.project_id === registration.project_id,
+    'the registered project starter card',
+  )).data;
+  assert.equal(firstCard.source.kind, 'agent');
+
+  const answered = await fetch(`http://127.0.0.1:${port}/answer?project=${encodeURIComponent(registration.project_id)}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ card_id: firstCard.card_id, chosen_index: 1 }),
+  });
+  assert.equal(answered.status, 200);
+  assert.equal((await answered.json()).correct, false);
+
+  // Let the watcher complete the empty-file EOF baseline, then append an
+  // actual Codex exec rollout event. This exercises watcher -> broker ->
+  // Studio generation rather than the agent-only relay path above.
+  await delay(150);
+  await fs.appendFile(
+    rolloutPath,
+    `${JSON.stringify({
+      type: 'response_item',
+      payload: {
+        type: 'custom_tool_call',
+        name: 'exec',
+        input: JSON.stringify({ cmd: 'node build.js', workdir: projectCwd }),
+      },
+    })}\n`,
+  );
+
+  const liveReady = await nextEventMatching(
+    stream,
+    (event) => event.type === 'project-studio'
+      && event.data.project_id === registration.project_id
+      && event.data.current?.card_id === firstCard.card_id
+      && event.data.next_ready === true,
+    'the observed ready-Next SSE flip',
+  );
+  assert.equal(liveReady.data.current.state.answered, true);
+  assert.equal(liveReady.data.waiting, null);
+
+  const snapshot = await (await fetch(
+    `http://127.0.0.1:${port}/projects/${encodeURIComponent(registration.project_id)}/snapshot`,
+  )).json();
+  assert.equal(snapshot.studio.current.card_id, firstCard.card_id);
+  assert.equal(snapshot.studio.current.state.answered, true);
+  assert.equal(snapshot.studio.next_ready, true);
+  assert.equal(snapshot.studio.waiting, null);
+  assert.equal(snapshot.cards.some((card) => card.source?.kind === 'observed-activity'), false, 'the ready card is unavailable until Next');
+
+  const next = await fetch(`http://127.0.0.1:${port}/projects/${encodeURIComponent(registration.project_id)}/next`, {
+    method: 'POST',
+  });
+  assert.equal(next.status, 200);
+  const advanced = await next.json();
+  assert.equal(advanced.advanced, true);
+  assert.equal(advanced.card.source.kind, 'observed-activity');
+  assert.equal(advanced.studio.current.card_id, advanced.card.card_id);
+  assert.equal(advanced.studio.next_ready, false);
+
+  const promoted = await nextEventMatching(
+    stream,
+    (event) => event.type === 'project-studio'
+      && event.data.project_id === registration.project_id
+      && event.data.current?.card_id === advanced.card.card_id,
+    'the promoted observed Next lesson',
+  );
+  assert.equal(promoted.data.next_ready, false);
+});
+
 test('record mode creates a clean replay from reports but excludes starter cards and requeues', { timeout: 10_000 }, async (t) => {
   const cleanup = createTestCleanup(t);
   const cwd = await temporaryProject(cleanup);
