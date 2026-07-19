@@ -481,7 +481,7 @@ test('a Studio candidate rejected at the global ceiling resumes fairly when its 
     () => waitingChannel.state.studio.candidates.length === 1 && !waitingChannel.studio.status().generation_in_flight,
     'the second channel to retain its rejected candidate',
   );
-  assert.equal(waitingChannel.studio.status().waiting.state, 'queued');
+  assert.equal(waitingChannel.studio.status().waiting.reason, 'queued');
   assert.equal(waitingChannel.state.cards.length, 0);
 
   releaseHolder();

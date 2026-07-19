@@ -462,7 +462,7 @@ test('MCP stdio accepts two sequential reports without corrupting stdout', { tim
   assert.equal(firstCard.data.source.kind, 'agent');
   const ready = await nextEventMatching(
     stream,
-    (event) => event.type === 'studio' && event.data.next?.ready === true,
+    (event) => event.type === 'studio' && event.data.next_ready === true,
     'the hidden ready Studio lesson',
   );
   assert.equal(ready.data.current.source.what_i_did, 'Built and verified the HTTP and SSE skeleton with a template lesson.');
@@ -1028,10 +1028,13 @@ test('a correct answer persists cards and user mastery, then survives an SSE rel
   assert.equal('correct_index' in reloadedCard, false);
 });
 
-test('a wrong answer stays reviewable while Studio prepares one deliberate next lesson', { timeout: 10_000 }, async (t) => {
+test('Studio keeps answered Now through live readiness and reload, then promotes Next without pacing', { timeout: 10_000 }, async (t) => {
   const cleanup = createTestCleanup(t);
   const cwd = await temporaryProject(cleanup);
-  const { runner, port } = await startHttpServer(cleanup, { cwd });
+  const { runner, port } = await startHttpServer(cleanup, {
+    cwd,
+    extraEnv: { OSMOSIS_CARD_PACING_MS: '60000', OSMOSIS_TEMPLATE_DELAY_MS: '60' },
+  });
   const stream = await openTrackedEvents(cleanup, port);
   assert.equal((await stream.nextEvent()).type, 'snapshot');
 
@@ -1050,39 +1053,67 @@ test('a wrong answer stays reviewable while Studio prepares one deliberate next 
     strength: 1,
   });
 
-  runner.child.stdin.write(
-    `${JSON.stringify(reportMessage(2, 'Second report', 'Delivered the first intervening report card.'))}\n${JSON.stringify(reportMessage(3, 'Third report', 'Delivered the second intervening report card.'))}\n`,
+  runner.child.stdin.write(`${JSON.stringify(reportMessage(2, 'Second report', 'Delivered the ready Next lesson.'))}\n`);
+  await waitFor(() => runner.stdoutLines().length === 2, 'the ready report acknowledgement');
+  const liveReady = await nextEventMatching(
+    stream,
+    (event) => event.type === 'studio'
+      && event.data.next_ready === true
+      && event.data.current?.card_id === firstCard.card_id,
+    'a live ready Next state without replacing Now',
   );
-  await waitFor(() => runner.stdoutLines().length === 3, 'the two later report acknowledgements');
-  const projectId = (await health(port)).default_project_id;
-  await waitFor(async () => {
-    const snapshot = await fetch(`http://127.0.0.1:${port}/projects/${encodeURIComponent(projectId)}/snapshot`);
-    const body = await snapshot.json();
-    return body.studio?.next?.ready === true;
-  }, 'a hidden next lesson');
+  assert.equal(liveReady.data.current.state.answered, true);
+  assert.equal(liveReady.data.current.state.correct, false);
+  assert.equal(liveReady.data.current.explanation, 'Exactly. A milestone becomes a small, timely lesson so waiting for an agent can become learning time.');
+  assert.equal(liveReady.data.waiting, null);
 
+  const projectId = (await health(port)).default_project_id;
+  const reload = await (await fetch(`http://127.0.0.1:${port}/projects/${encodeURIComponent(projectId)}/snapshot`)).json();
+  assert.equal(reload.studio.current.card_id, firstCard.card_id);
+  assert.equal(reload.studio.current.state.answered, true);
+  assert.equal(reload.studio.current.explanation, liveReady.data.current.explanation);
+  assert.equal(reload.studio.next_ready, true);
+  assert.equal(reload.studio.waiting, null);
+  assert.equal(reload.cards.some((card) => card.source?.task === 'Second report'), false);
+
+  // With Now and hidden Next full, the third report stays a bounded source
+  // candidate instead of surfacing another lesson before the learner asks.
+  runner.child.stdin.write(`${JSON.stringify(reportMessage(3, 'Third report', 'Stayed behind the Studio watermark.'))}\n`);
+  await waitFor(() => runner.stdoutLines().length === 3, 'the suppressed third report acknowledgement');
+  const watermark = JSON.parse(await fs.readFile(path.join(cwd, '.osmosis', 'cards.json'), 'utf8'));
+  assert.equal(watermark.cards.some((card) => card.source?.task === 'Third report'), false);
+  assert.equal(watermark.studio.candidates.length, 1);
+
+  const advanceStartedAt = Date.now();
   const advance = await fetch(`http://127.0.0.1:${port}/projects/${encodeURIComponent(projectId)}/next`, {
     method: 'POST',
   });
   assert.equal(advance.status, 200);
-  const secondCard = (await advance.json()).card;
+  const advanced = await advance.json();
+  assert.ok(Date.now() - advanceStartedAt < 1_000, 'manual Next bypasses the 60 second unsolicited pace');
+  const secondCard = advanced.card;
   assert.equal(secondCard.source.task, 'Second report');
-  const secondAnswer = await fetch(`http://127.0.0.1:${port}/answer`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ card_id: secondCard.card_id, chosen_index: 0 }),
-  });
-  assert.equal((await secondAnswer.json()).correct, true);
+  assert.equal(advanced.studio.current.card_id, secondCard.card_id);
+  assert.equal(advanced.studio.next_ready, false);
 
-  const review = await fetch(`http://127.0.0.1:${port}/projects/${encodeURIComponent(projectId)}/review`);
-  const reviewCards = (await review.json()).cards;
-  assert.equal(reviewCards.filter((card) => card.card_id === firstCard.card_id).length, 1);
-  assert.equal(reviewCards.find((card) => card.card_id === firstCard.card_id).state.correct, false);
-  // The template provider maps both later signals to the same concept. A
-  // correct answer deliberately clears a hidden duplicate rather than
-  // turning it into a third question on the learner's trail.
-  const afterMastery = await (await fetch(`http://127.0.0.1:${port}/projects/${encodeURIComponent(projectId)}/snapshot`)).json();
-  assert.equal(afterMastery.studio.next.ready, false);
+  const promoted = await nextEventMatching(
+    stream,
+    (event) => event.type === 'studio' && event.data.current?.card_id === secondCard.card_id,
+    'the promoted Next lesson',
+  );
+  assert.equal(promoted.data.next_ready, false);
+
+  const promotedReload = await (await fetch(`http://127.0.0.1:${port}/projects/${encodeURIComponent(projectId)}/snapshot`)).json();
+  assert.equal(promotedReload.studio.current.card_id, secondCard.card_id);
+  assert.equal(promotedReload.cards.find((card) => card.card_id === firstCard.card_id).state.answered, true);
+  assert.equal(promotedReload.cards.some((card) => card.card_id === secondCard.card_id), true);
+
+  // The held third signal may now fill exactly one fresh Next buffer. It is
+  // still never sent as a visible card before a subsequent explicit advance.
+  await waitFor(async () => {
+    const snapshot = await (await fetch(`http://127.0.0.1:${port}/projects/${encodeURIComponent(projectId)}/snapshot`)).json();
+    return snapshot.studio.current?.card_id === secondCard.card_id && snapshot.studio.next_ready === true;
+  }, 'the watermark refill after promotion');
 });
 
 test('record mode creates a clean replay from reports but excludes starter cards and requeues', { timeout: 10_000 }, async (t) => {

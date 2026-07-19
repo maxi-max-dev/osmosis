@@ -51,15 +51,8 @@
   function emptyStudio() {
     return {
       current: null,
-      current_card_id: null,
-      next: { ready: false },
-      review: [],
-      status: { candidate_count: 0, generation_in_flight: false, next_ready: false },
-      waiting: {
-        message: 'Keep working — Osmosis will prepare the next lesson when it sees a useful signal.',
-        source: null,
-        state: 'idle',
-      },
+      next_ready: false,
+      waiting: { reason: 'idle', source_provenance: null },
     };
   }
 
@@ -166,13 +159,25 @@
     return project.cards.find((card) => card?.card_id === cardId) || null;
   }
 
-  function normalizeStudio(snapshot, cards) {
-    if (snapshot?.studio?.current || snapshot?.studio?.waiting || snapshot?.studio?.next) {
-      return { ...emptyStudio(), ...snapshot.studio, next: { ready: false, ...(snapshot.studio.next || {}) } };
+  function normalizeStudio(snapshot, cards, previous = null) {
+    const raw = snapshot?.studio;
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      // Transitional owners may still send an old pointer-only snapshot.
+      // Resolve that exact pointer, never a convenient-looking unanswered card:
+      // a hidden Next must not replace the answered lesson in the learner's
+      // hands while a snapshot is being reconciled.
+      const currentId = typeof raw.current_card_id === 'string' ? raw.current_card_id : null;
+      const pointerCurrent = currentId ? cards.find((card) => card?.card_id === currentId) || null : null;
+      const withPointer = !Object.hasOwn(raw, 'current') && pointerCurrent ? { ...raw, current: pointerCurrent } : raw;
+      const normalized = studioState?.normalizeStudioContract
+        ? studioState.normalizeStudioContract(withPointer, previous)
+        : { ...emptyStudio(), ...withPointer, next_ready: withPointer.next_ready === true || withPointer.next?.ready === true };
+      return { ...emptyStudio(), ...normalized };
     }
-    const currentId = snapshot?.studio?.current_card_id;
-    const current = cards.find((card) => card.card_id === currentId) || cards.find((card) => !card.state?.answered) || null;
-    return { ...emptyStudio(), current, current_card_id: current?.card_id || currentId || null };
+    // This fallback is only for a pre-Studio legacy snapshot with no Studio
+    // payload at all. Once a Studio contract exists, current is never guessed.
+    const current = cards.find((card) => !card.state?.answered) || null;
+    return { ...emptyStudio(), current };
   }
 
   function applySnapshot(projectId, snapshot) {
@@ -180,7 +185,12 @@
     const project = projectFor(projectId);
     project.cards = Array.isArray(snapshot.cards) ? snapshot.cards : project.cards;
     project.tree = snapshot.tree || project.tree;
-    project.studio = normalizeStudio(snapshot, project.cards);
+    project.studio = normalizeStudio(snapshot, project.cards, project.studio);
+    project.cards = studioState?.mergeStudioCurrent
+      ? studioState.mergeStudioCurrent(project.cards, project.studio.current)
+      : project.studio.current
+        ? [...project.cards.filter((card) => card?.card_id !== project.studio.current.card_id), project.studio.current]
+        : project.cards;
     if (snapshot.strengths && typeof snapshot.strengths === 'object') store.strengths = snapshot.strengths;
     if (snapshot.project) updateSummary(snapshot.project);
     project.hydrated = true;
@@ -189,19 +199,20 @@
   function applyStudio(projectId, studio) {
     if (!studio || typeof studio !== 'object') return;
     const project = projectFor(projectId);
-    project.studio = { ...emptyStudio(), ...studio, next: { ready: false, ...(studio.next || {}) } };
-    if (project.studio.current) {
-      project.cards = project.cards.filter((card) => card.card_id !== project.studio.current.card_id);
-      project.cards.push(project.studio.current);
-    }
+    project.studio = normalizeStudio({ studio }, project.cards, project.studio);
+    project.cards = studioState?.mergeStudioCurrent
+      ? studioState.mergeStudioCurrent(project.cards, project.studio.current)
+      : project.studio.current
+        ? [...project.cards.filter((card) => card?.card_id !== project.studio.current.card_id), project.studio.current]
+        : project.cards;
   }
 
   function statusForActive() {
     const project = activeProject();
     const studio = project?.studio;
     if (store.settings.global_learning === 'paused') return 'Paused';
-    if (studio?.status?.generation_in_flight) return provider === 'codex' ? 'Generating · slower' : 'Preparing';
-    if (studio?.next?.ready) return 'Next is ready';
+    if (['preparing', 'queued'].includes(studio?.waiting?.reason)) return provider === 'codex' ? 'Generating · slower' : 'Preparing';
+    if (studio?.next_ready) return 'Next is ready';
     return 'Listening';
   }
 
@@ -256,7 +267,7 @@
     trail.innerHTML = cards.length
       ? cards.slice(-10).map((card) => trailItem(card, card.card_id === current?.card_id)).join('')
       : '<li class="trail-empty">Your trail will begin with the first useful signal from this project.</li>';
-    const next = project.studio?.next?.ready;
+    const next = project.studio?.next_ready;
     trailNote.textContent = next
       ? 'One follow-up lesson is ready whenever you are.'
       : 'The route changes with your work; there is no fake curriculum to catch up on.';
@@ -328,14 +339,21 @@
   }
 
   function waitingMarkup(waiting) {
-    const source = waiting?.source;
+    const source = waiting?.source_provenance;
     const provenance = source
       ? `<p class="waiting-source">${sourceMarkup(source)}</p>`
       : '';
+    const preparing = waiting?.reason === 'preparing';
+    const queued = waiting?.reason === 'queued';
+    const message = preparing
+      ? 'Preparing a lesson from the latest useful signal.'
+      : queued
+        ? 'A useful signal is waiting for room in your next lesson.'
+        : 'Keep working — Osmosis will prepare the next lesson when it sees a useful signal.';
     return `<article class="waiting-card">
       <span class="waiting-orb" aria-hidden="true"></span>
-      <p class="eyebrow">${waiting?.state === 'preparing' ? 'Preparing next' : 'Listening for useful work'}</p>
-      <h3>${escapeHtml(waiting?.message || 'Keep working — Osmosis will prepare the next lesson when it sees a useful signal.')}</h3>
+      <p class="eyebrow">${preparing ? 'Preparing next' : queued ? 'Next signal queued' : 'Listening for useful work'}</p>
+      <h3>${escapeHtml(message)}</h3>
       ${provenance}
     </article>`;
   }
@@ -343,14 +361,17 @@
   function nextControl(project, current) {
     if (!current?.state?.answered) return '';
     const studio = project.studio || emptyStudio();
-    if (studio.next?.ready) {
+    const controlState = studioState?.nextControlState?.(studio)
+      || (studio.next_ready ? 'ready' : ['preparing', 'queued'].includes(studio.waiting?.reason) ? 'preparing' : 'idle');
+    if (controlState === 'ready') {
       return '<button class="next-lesson" type="button" data-next-lesson>Next lesson <span aria-hidden="true">→</span></button>';
     }
-    const waiting = studio.waiting || studio.status?.waiting;
-    const hasWork = studio.status?.generation_in_flight || studio.status?.candidate_count > 0 || ['preparing', 'queued'].includes(waiting?.state);
+    const waiting = studio.waiting;
+    const hasWork = controlState === 'preparing';
+    const source = waiting?.source_provenance;
     return `<div class="next-waiting">
       <button class="next-lesson next-lesson--muted" type="button" disabled>${hasWork ? 'Preparing next…' : 'Nothing relevant yet'}</button>
-      ${hasWork && waiting?.source ? `<p>${sourceMarkup(waiting.source, { compact: true })}<span>${escapeHtml(sourceText(waiting.source))}</span></p>` : ''}
+      ${hasWork && source ? `<p>${sourceMarkup(source, { compact: true })}<span>${escapeHtml(sourceText(source))}</span></p>` : ''}
     </div>`;
   }
 
@@ -394,7 +415,7 @@
   }
 
   function renderReview(project) {
-    const cards = project.studio?.review || project.cards.filter((card) => card.state?.answered);
+    const cards = project.cards.filter((card) => card.state?.answered);
     if (!cards.length) {
       return `<article class="waiting-card"><p class="eyebrow">Past lessons</p><h3>Your answered lessons will collect here.</h3><p>There is nothing to revise yet — keep your attention on the work in front of you.</p></article>`;
     }
@@ -519,7 +540,9 @@
       studioState?.setAutoAdvanceEnabled?.(controller.state, enabled);
     }
     const current = project.studio?.current;
-    const nextReady = Boolean(project.studio?.next?.ready && current?.state?.answered);
+    const nextReady = studioState?.autoAdvanceEligible
+      ? studioState.autoAdvanceEligible(project.studio)
+      : Boolean(project.studio?.next_ready && current?.state?.answered);
     if (nextReady) studioState?.noteNextReady?.(controller.state);
     else studioState?.noteNextUnavailable?.(controller.state);
     window.clearTimeout(controller.timer);
@@ -535,10 +558,19 @@
   }
 
   async function autoAdvance(projectId) {
+    // A scheduled timer belongs only to the lesson the learner is currently
+    // looking at. Tab, deep-link, and review transitions are interactions;
+    // an old project's timer must never advance it in the background.
+    const activeNow = studioState?.isActiveNowContext
+      ? studioState.isActiveNowContext(store, projectId)
+      : store.activeProjectId === projectId && store.studioView === 'now';
+    if (!activeNow) return;
     const project = projectFor(projectId);
     const controller = controllerFor(projectId);
     const gate = studioState?.claimAutoAdvance?.(controller.state, {
-      nextReady: Boolean(project.studio?.next?.ready && project.studio?.current?.state?.answered),
+      nextReady: studioState?.autoAdvanceEligible
+        ? studioState.autoAdvanceEligible(project.studio)
+        : Boolean(project.studio?.next_ready && project.studio?.current?.state?.answered),
     });
     if (!gate?.shouldAdvance) return;
     await advanceLesson(projectId, { auto: true });
@@ -610,7 +642,6 @@
       const answered = { ...card, state: { answered: true, chosen_index: index, correct: result.correct }, explanation: result.explanation };
       project.studio.current = answered;
       project.cards = project.cards.map((item) => item.card_id === cardId ? answered : item);
-      project.studio.review = project.cards.filter((item) => item.state?.answered);
       store.strengths[answered.concept_id] = { ...(store.strengths[answered.concept_id] || {}), name: answered.concept_name, strength: result.strength };
       store.pendingAnswers.delete(projectId);
       render();
@@ -641,14 +672,18 @@
       if (!response.ok) throw new Error('Next unavailable');
       const result = await response.json();
       if (result.advanced && result.card) {
-        project.studio.current = result.card;
-        project.studio.current_card_id = result.card.card_id;
-        project.studio.next = { ready: false };
-        project.cards = project.cards.filter((card) => card.card_id !== result.card.card_id);
-        project.cards.push(result.card);
+        if (result.studio) applyStudio(projectId, result.studio);
+        else {
+          project.studio.current = result.card;
+          project.studio.next_ready = false;
+          project.cards = studioState?.mergeStudioCurrent
+            ? studioState.mergeStudioCurrent(project.cards, result.card)
+            : [...project.cards.filter((card) => card.card_id !== result.card.card_id), result.card];
+        }
         if (store.activeProjectId === projectId) render();
         return;
       }
+      if (result.studio) applyStudio(projectId, result.studio);
       if (result.state === 'answer-required') showToast('Answer the current question first.');
       else if (!auto) showToast(result.state === 'preparing' ? 'Your next lesson is still preparing.' : 'Nothing new is ready yet.');
       if (store.activeProjectId === projectId) render();
@@ -659,10 +694,16 @@
 
   async function selectProject(projectId, view = 'now', { writeHash = false, forceHydrate = false } = {}) {
     if (typeof projectId !== 'string') return;
+    const targetView = view === 'review' ? 'review' : 'now';
+    const previousProjectId = store.activeProjectId;
+    const previousView = store.studioView;
+    if (previousProjectId && (previousProjectId !== projectId || previousView !== targetView)) {
+      noteInteraction(previousProjectId);
+    }
     // A tab click is an explicit choice to return to that channel. Do not
     // leave a separate project's activation sheet covering it afterwards.
     store.activationProjectId = null;
-    const route = { projectId, view };
+    const route = { projectId, view: targetView };
     if (studioState?.selectStudioRouteFromUser) studioState.selectStudioRouteFromUser(store, route);
     else {
       store.activeProjectId = projectId;
@@ -700,7 +741,11 @@
       const response = await fetch(`/projects/${encodeURIComponent(projectId)}/review`, { cache: 'no-store' });
       if (!response.ok) throw new Error('Review unavailable');
       const body = await response.json();
-      project.studio.review = Array.isArray(body.cards) ? body.cards : project.studio.review;
+      if (Array.isArray(body.cards)) {
+        project.cards = studioState?.mergeStudioCurrent
+          ? studioState.mergeStudioCurrent(body.cards, project.studio.current)
+          : body.cards;
+      }
       project.reviewLoaded = true;
       if (store.activeProjectId === projectId && store.studioView === 'review') renderStage();
     } catch {
@@ -811,7 +856,10 @@
     if (type === 'card') {
       project.cards = project.cards.filter((card) => card.card_id !== payload.card_id);
       project.cards.push(payload);
-      if (payload.card_id === project.studio?.current_card_id || !project.studio?.current) project.studio.current = payload;
+      // A card event is compatibility data, not a command to move the
+      // learner's focus. Only the canonical Studio event (or a matching Now
+      // id) may replace current; a hidden/late card must never steal Now.
+      if (payload.card_id === project.studio?.current?.card_id) project.studio.current = payload;
     } else if (type === 'snapshot') {
       applySnapshot(projectId, payload);
     } else if (type === 'studio') {

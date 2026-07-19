@@ -71,25 +71,41 @@ test('Studio coalesces candidates at the two-signal watermark and ledgers the me
   assert.equal(ledger.some((entry) => entry.reason === 'studio-candidate-coalesced'), true);
 });
 
-test('Studio holds one hidden Next card, keeps it out of the answer cap, and promotes it immediately on Next', async () => {
+test('Studio keeps an answered Now card stable while a ready buffer lights Next, suppresses a third card, and promotes explicitly', async () => {
   let generated = 0;
   const { events, state, studio } = harness({
     generate: async () => card(++generated),
   });
   studio.enqueueReport(report(1));
-  studio.enqueueReport(report(2));
   await studio.whenIdle();
 
   assert.equal(state.studio.current_card_id, 'card-1');
+  assert.equal(state.studio.ready_card_id, null);
+  state.cards.find((item) => item.card_id === 'card-1').state = { answered: true, chosen_index: 1, correct: false };
+
+  studio.enqueueReport(report(2));
+  await studio.whenIdle();
+
   assert.equal(state.studio.ready_card_id, 'card-2');
-  assert.equal(state.studio.candidates.length, 0);
-  assert.equal(studio.countUnanswered(), 1);
-  assert.equal(studio.projection().next.ready, true);
-  assert.equal(JSON.stringify(studio.projection()).includes('Hidden question 2?'), false);
+  studio.enqueueReport(report(3));
+  await studio.whenIdle();
+
+  const readyProjection = studio.projection();
+  assert.equal(readyProjection.current.card_id, 'card-1');
+  assert.equal(readyProjection.current.state.answered, true);
+  assert.equal(readyProjection.current.explanation, 'Explanation 1');
+  assert.equal(readyProjection.next_ready, true);
+  assert.equal(readyProjection.waiting, null);
+  // The third signal remains only as a bounded candidate while Now and the
+  // hidden Next occupy the watermark. It never leaks a third card early.
+  assert.equal(state.studio.candidates.length, 1);
+  assert.deepEqual(state.studio.candidates[0].report_ids, ['report-3']);
+  assert.equal(state.cards.some((item) => item.card_id === 'card-3'), false);
+  assert.equal(studio.countUnanswered(), 0);
+  assert.equal(JSON.stringify(readyProjection).includes('Hidden question 2?'), false);
   assert.equal(JSON.stringify(snapshotFor(state)).includes('Hidden question 2?'), false);
   assert.deepEqual(events.filter((event) => event.type === 'card').map((event) => event.payload.card_id), ['card-1']);
 
-  state.cards.find((item) => item.card_id === 'card-1').state = { answered: true, chosen_index: 0, correct: true };
   const advanced = await studio.next();
   assert.deepEqual({ advanced: advanced.advanced, state: advanced.state }, { advanced: true, state: 'advanced' });
   assert.equal(studio.currentCardId(), 'card-2');
@@ -103,9 +119,10 @@ test('auto-advance is opt-in and an interaction invalidates a pending automatic 
   studio.enqueueReport(report(1));
   studio.enqueueReport(report(2));
   await studio.whenIdle();
-  state.cards.find((item) => item.card_id === 'card-1').state = { answered: true, chosen_index: 0, correct: true };
 
   const token = studio.interactionToken();
+  assert.equal(studio.canAutoAdvance({ enabled: true, interaction_token: token }), false);
+  state.cards.find((item) => item.card_id === 'card-1').state = { answered: true, chosen_index: 0, correct: true };
   assert.equal(studio.canAutoAdvance({ enabled: false, interaction_token: token }), false);
   assert.equal(studio.canAutoAdvance({ enabled: true, interaction_token: token }), true);
   studio.noteInteraction();

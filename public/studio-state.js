@@ -13,6 +13,14 @@
   const REVIEW_VIEW = 'review';
   const DEFAULT_AUTO_ADVANCE_DELAY_MS = 3_000;
 
+  function hasOwn(value, key) {
+    return Boolean(value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, key));
+  }
+
+  function objectOrNull(value) {
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  }
+
   function normalizeProjectId(value) {
     if (typeof value !== 'string') return null;
     const projectId = value.trim();
@@ -66,6 +74,93 @@
       projectId: normalizeProjectId(route.projectId || route.project_id),
       view: normalizeView(route.view),
     };
+  }
+
+  function normalizeSourceProvenance(value) {
+    const source = objectOrNull(value);
+    if (!source) return null;
+    return {
+      kind: typeof source.kind === 'string' ? source.kind : 'agent',
+      task: typeof source.task === 'string' ? source.task : '',
+      what_i_did: typeof source.what_i_did === 'string' ? source.what_i_did : '',
+    };
+  }
+
+  function normalizeWaiting(value) {
+    if (value === null) return null;
+    const waiting = objectOrNull(value);
+    if (!waiting) return { reason: 'idle', source_provenance: null };
+    const rawReason = typeof waiting.reason === 'string'
+      ? waiting.reason
+      // A short migration shim lets a connecting browser survive an older
+      // owner during a local port-handover without treating it as canonical.
+      : typeof waiting.state === 'string' ? waiting.state : 'idle';
+    const reason = ['preparing', 'queued', 'idle'].includes(rawReason) ? rawReason : 'idle';
+    return {
+      reason,
+      source_provenance: normalizeSourceProvenance(waiting.source_provenance || waiting.source),
+    };
+  }
+
+  /**
+   * The one Studio wire contract used by REST snapshots and live SSE:
+   * current remains in place until Next, while next_ready exposes only the
+   * buffer's availability—not its hidden lesson payload.
+   */
+  function normalizeStudioContract(value, fallback = null) {
+    const studio = objectOrNull(value);
+    const previous = objectOrNull(fallback);
+    const current = studio && hasOwn(studio, 'current')
+      ? studio.current || null
+      : previous?.current || null;
+    const nextReady = studio && hasOwn(studio, 'next_ready')
+      ? studio.next_ready === true
+      : studio?.next
+        ? studio.next.ready === true
+        : previous?.next_ready === true;
+    const waiting = studio && hasOwn(studio, 'waiting')
+      ? normalizeWaiting(studio.waiting)
+      : previous && hasOwn(previous, 'waiting')
+        ? normalizeWaiting(previous.waiting)
+        : { reason: 'idle', source_provenance: null };
+    const interactionToken = Number.isInteger(studio?.interaction_token)
+      ? studio.interaction_token
+      : Number.isInteger(previous?.interaction_token)
+        ? previous.interaction_token
+        : null;
+    return {
+      current,
+      next_ready: nextReady,
+      waiting,
+      ...(interactionToken === null ? {} : { interaction_token: interactionToken }),
+    };
+  }
+
+  function mergeStudioCurrent(cards, current) {
+    const existing = Array.isArray(cards) ? cards.filter(Boolean) : [];
+    if (!current || typeof current.card_id !== 'string') return existing;
+    return [...existing.filter((card) => card?.card_id !== current.card_id), current];
+  }
+
+  function nextControlState(studio) {
+    const normalized = normalizeStudioContract(studio);
+    if (!normalized.current?.state?.answered) return 'hidden';
+    if (normalized.next_ready) return 'ready';
+    return ['preparing', 'queued'].includes(normalized.waiting?.reason) ? 'preparing' : 'idle';
+  }
+
+  function autoAdvanceEligible(studio) {
+    const normalized = normalizeStudioContract(studio);
+    return Boolean(normalized.current?.state?.answered && normalized.next_ready);
+  }
+
+  function isActiveNowContext(state, projectId) {
+    return Boolean(
+      state
+      && typeof projectId === 'string'
+      && state.activeProjectId === projectId
+      && normalizeView(state.studioView) === DEFAULT_VIEW,
+    );
   }
 
   /**
@@ -177,13 +272,18 @@
   return {
     DEFAULT_AUTO_ADVANCE_DELAY_MS,
     REVIEW_VIEW,
+    autoAdvanceEligible,
     autoAdvanceGate,
     buildStudioRoute,
     claimAutoAdvance,
     createAutoAdvanceState,
+    isActiveNowContext,
+    mergeStudioCurrent,
     noteNextReady,
     noteNextUnavailable,
     noteStudioInteraction,
+    nextControlState,
+    normalizeStudioContract,
     parseStudioRoute,
     selectStudioRouteFromUser,
     setAutoAdvanceEnabled,
