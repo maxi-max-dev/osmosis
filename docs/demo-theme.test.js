@@ -103,16 +103,51 @@ function contrastRatio(foreground, background) {
   return (lighter + .05) / (darker + .05);
 }
 
-test('all demo themes retain keyboard controls, body contrast, and reduced-motion buddy fallback', () => {
+test('all visible demo text meets 4.5:1 against its effective component background', () => {
   const page = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
   assert.match(page, /<button class="theme-choice" type="button" data-theme-choice="warm"/);
   assert.match(page, /<button class="theme-choice" type="button" data-theme-choice="buddy"/);
   assert.match(page, /<button class="theme-choice" type="button" data-theme-choice="classic"/);
   assert.match(page, /button:focus-visible/);
   assert.match(page, /@media \(prefers-reduced-motion: reduce\) \{ \.buddy-robot \{ animation: none; \} \}/);
-  assert.ok(contrastRatio('#26332e', '#fff7ea') >= 4.5, 'warm body text must meet 4.5:1');
-  assert.ok(contrastRatio('#22383e', '#d3dddd') >= 4.5, 'buddy body text must meet 4.5:1');
-  assert.ok(contrastRatio('#eff4ff', '#080c18') >= 4.5, 'classic body text must meet 4.5:1');
+  const effectivePairs = [
+    ['warm body', '#26332e', '#fff7ea'],
+    ['warm secondary/sidebar', '#606860', '#fff2dc'],
+    ['warm secondary/carried-over panel', '#606860', '#fff1c9'],
+    ['warm secondary/card and theme switcher', '#606860', '#fffdf8'],
+    ['warm secondary/footer', '#606860', '#fff7ea'],
+    ['warm no-api badge', '#176942', '#fff7ea'],
+    ['warm carried-over badge', '#78500a', '#fff1c9'],
+    ['warm carried-over snapshot', '#78500a', '#fffdf8'],
+    ['warm default answer', '#26332e', '#fff2dc'],
+    ['warm correct answer', '#176942', '#e2f7e9'],
+    ['warm incorrect answer', '#a03945', '#ffe6e6'],
+    ['warm primary button', '#ffffff', '#257e70'],
+    ['warm disabled replay button', '#26332e', '#f5ead6'],
+    ['buddy body', '#22383e', '#d3dddd'],
+    ['buddy secondary/sidebar', '#45636a', '#e4ecec'],
+    ['buddy secondary/carried-over panel', '#45636a', '#f5e5bd'],
+    ['buddy secondary/card and theme switcher', '#45636a', '#f7fafa'],
+    ['buddy secondary/footer', '#45636a', '#d3dddd'],
+    ['buddy no-api badge', '#176741', '#d3dddd'],
+    ['buddy carried-over badge', '#78500a', '#f5e5bd'],
+    ['buddy carried-over snapshot', '#78500a', '#f7fafa'],
+    ['buddy default answer', '#22383e', '#e4ecec'],
+    ['buddy correct answer', '#176741', '#d8efe3'],
+    ['buddy incorrect answer', '#963a3e', '#f6dfdd'],
+    ['buddy primary button', '#ffffff', '#0e7d88'],
+    ['buddy disabled replay button', '#22383e', '#dce7e7'],
+    ['classic body', '#eff4ff', '#080c18'],
+    ['classic secondary footer', '#7183a6', '#080c18'],
+    ['classic note/sidebar', '#9aa9c8', '#080e1c'],
+    ['classic answer button', '#dce6ff', '#0d182f'],
+    ['classic disabled replay button', '#0b1327', '#94a8d8']
+  ];
+  for (const [label, foreground, background] of effectivePairs) {
+    const ratio = contrastRatio(foreground, background);
+    assert.ok(ratio >= 4.5, `${label} must meet 4.5:1; got ${ratio.toFixed(2)}:1`);
+  }
+  assert.match(page, /answers button:disabled[^}]*opacity: 1/);
   assert.doesNotMatch(page, /(?:window\.)?location\.reload\s*\(/);
 });
 
