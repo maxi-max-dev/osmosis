@@ -77,6 +77,7 @@
       yes_carry: '保留这个项目', yes_carry_copy: '留下它的课程，让知识可以带到下一个项目。',
       you_got_it: '答对了。', correction: '再想一想。', learned: '已学会', revisit: '以后复习', waiting_short: '等待中', now_short: '现在',
       activity_id: '观察编号', answer_choices: '答案选项', focused_question: '一题专注练习', lesson_ready: '课程已就绪', next_lesson: '下一课', one_small_question: '一题小练习', reason: '原因',
+      warmup_replaced_refreshed: '这张热身题已被同一活动的正式课程替换。', warmup_replaced_reconnecting: '这张热身题已被替换；页面会在重新连接后更新。',
       ui_language: '界面语言', mascot: '桌伴', mascot_copy: '让小渗在角落陪你观察学习活动。',
       local_titles: '显示本地对话标题', local_titles_copy: '默认关闭；开启后只在本机保存简短标题，可随时关闭并清除。',
       active_conversation: '当前对话：{title}',
@@ -114,6 +115,7 @@
       yes_carry: 'Carry this project', yes_carry_copy: 'Keep its lessons and let its knowledge travel with you.',
       you_got_it: 'That’s it.', correction: 'A small correction.', learned: 'Learned', revisit: 'Revisit later', waiting_short: 'Waiting', now_short: 'Now',
       activity_id: 'Activity ID', answer_choices: 'Answer choices', focused_question: 'One focused question', lesson_ready: 'Lesson ready', next_lesson: 'Next lesson', one_small_question: 'One small question', reason: 'Reason',
+      warmup_replaced_refreshed: 'This warmup was replaced by the full lesson from the same activity.', warmup_replaced_reconnecting: 'This warmup was replaced. The page will update when it reconnects.',
       ui_language: 'Interface language', mascot: 'Desk buddy', mascot_copy: 'Let Xiao Shen keep a quiet eye on learning activity.',
       local_titles: 'Show local conversation titles', local_titles_copy: 'Off by default; when enabled, short titles stay only on this device and clear when turned off.',
       active_conversation: 'Active conversation: {title}',
@@ -1015,9 +1017,7 @@
       if (isWarmup && response.status === 409) {
         store.pendingAnswers.delete(projectId);
         const refreshed = await refreshProjectSnapshot(projectId);
-        showToast(refreshed
-          ? '这张热身题已被同一活动的正式课程替换。'
-          : '这张热身题已被替换；页面会在重新连接后更新。');
+        showToast(refreshed ? t('warmup_replaced_refreshed') : t('warmup_replaced_reconnecting'));
         return;
       }
       if (!response.ok) throw new Error('Answer rejected');

@@ -256,6 +256,51 @@ test('fast-path SSE and reconnect presentation phases stay monotonic from observ
   assert.deepEqual(visiblePhases, ['observed', 'preparing', 'card-ready', 'idle']);
 });
 
+test('an answered fast-path warmup converges its later true-card Next buffer to card-ready over SSE and reconnect', async () => {
+  let releaseGeneration;
+  const h = harness({
+    generate: () => new Promise((resolve) => {
+      releaseGeneration = resolve;
+    }),
+  });
+  await h.studio.onWarmupCandidate({
+    activity_epoch_id: 'epoch-answered-buffer',
+    concept_id: 'search-with-rg',
+    dedupe_key: 'project:session-answered-buffer:search-with-rg',
+    observation_id: 'observation-answered-buffer',
+    report: observedReport('epoch-answered-buffer'),
+    warmup: warmup('warmup-answered-buffer', 'epoch-answered-buffer'),
+  });
+  const generating = h.studio.pump();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(h.studio.projection().presentation.phase, 'preparing');
+
+  await h.studio.answerWarmup({ card_id: 'warmup-answered-buffer', chosen_index: 0 });
+  releaseGeneration({ state: 'generated', card: realCard('real-answered-buffer', 'search-with-rg') });
+  await generating;
+
+  const live = h.studio.projection();
+  assert.equal(live.now.kind, 'warmup');
+  assert.equal(live.current_warmup.state.answered, true);
+  assert.equal(live.next_ready, true, 'the later true card stays behind the learner’s answered warmup until Next');
+  assert.equal(live.presentation.phase, 'card-ready', 'a durable next-ready buffer is a real terminal activity outcome');
+  assert.equal(
+    h.events.some((event) => event.type === 'studio' && event.payload.presentation?.phase === 'card-ready' && event.payload.next_ready === true),
+    true,
+    'the live SSE contract exposes the converged ready state',
+  );
+  assert.equal(
+    h.entries.some((entry) => entry.event === 'buffered' && entry.reason === 'next-ready' && entry.state === 'waiting'),
+    true,
+    'the ledger still distinguishes a hidden Next buffer from visible delivery',
+  );
+
+  const reconnect = harness({ state: h.latest() });
+  const restored = reconnect.studio.projection();
+  assert.equal(restored.next_ready, true);
+  assert.equal(restored.presentation.phase, 'card-ready', 'a reconnect cannot revive the old forever-preparing projection');
+});
+
 test('only a same-epoch real card replaces an untouched warmup; an unrelated card remains Next', async () => {
   const h = harness();
   const served = await h.studio.onWarmupCandidate({

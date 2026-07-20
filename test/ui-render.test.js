@@ -157,3 +157,45 @@ test('the real answer renderer sends one correct-answer celebration episode, nev
   hooks.celebrateCorrectAnswer(project.project_id, card.card_id);
   assert.equal(hooks.store.celebration.episode, 'answer:project-answer:card-answer', 'the same correct answer stays one deduped episode');
 });
+
+test('the real English warmup 409 path renders localized replacement toasts after refresh and reconnect fallback', async () => {
+  const cases = [
+    {
+      expected: 'This warmup was replaced by the full lesson from the same activity.',
+      snapshotResponse: {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          cards: [], strengths: {}, tree: { meta: {}, nodes: [] },
+          studio: {
+            current: null, current_warmup: null, next_ready: false,
+            now: { kind: null, card_ref: null }, presentation: { phase: 'idle' },
+            waiting: { reason: 'idle', source_provenance: null },
+          },
+        }),
+      },
+    },
+    {
+      expected: 'This warmup was replaced. The page will update when it reconnects.',
+      snapshotResponse: { ok: false, status: 503 },
+    },
+  ];
+  for (const scenario of cases) {
+    const { hooks, nodes } = loadRenderedApp({
+      answer: async (url) => (url.startsWith('/answer?')
+        ? { ok: false, status: 409 }
+        : scenario.snapshotResponse),
+    });
+    hooks.applySettings({ ui_locale: 'en' });
+    const project = warmupProject();
+    project.studio.current_warmup.state = { answered: false, chosen_index: null, correct: null };
+    project.studio.current = project.studio.current_warmup;
+    hooks.store.projects.set(project.project_id, project);
+    hooks.store.activeProjectId = project.project_id;
+
+    await hooks.submitAnswer(project.project_id, project.studio.current_warmup.warmup_id, 0);
+    const toast = nodes.get('#toast').textContent;
+    assert.equal(toast, scenario.expected);
+    assert.doesNotMatch(toast, HAN, 'the actual 409 recovery toast must stay in the selected English locale');
+  }
+});
