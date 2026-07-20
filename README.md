@@ -4,7 +4,20 @@ Osmosis turns the time you spend waiting for an AI coding agent into short lesso
 
 This is a plain-JavaScript, local-first MCP server and browser UI built for the OpenAI Build Week Education track.
 
-> Build status: Steps 1–3, 5, and 6 are complete and verified. Step 4 now has a provider-neutral curriculum pipeline plus a local Codex generator. The OpenAI API backend remains gated on API billing and an API key.
+> **Build status**
+>
+> - **Verified:** the local MCP server, browser Learning Studio, project-channel broker, shared cross-project mastery, record/replay fixtures, experimental Ambient Watch, experimental inline MCP Apps, and the local read-only Codex card/tree generator.
+> - **Pending:** the direct `openai` API provider is scaffolded and switchable, but needs verified API billing and an `OPENAI_API_KEY` before it can generate lessons.
+
+## The problem: comprehension debt
+
+AI coding agents can finish a feature while a non-technical builder waits, leaving them with working code but no mental model of what it does. This is now commonly described as **comprehension debt**: the widening gap between the code a system contains and the code a human genuinely understands. [O'Reilly Radar's explanation of comprehension debt](https://www.oreilly.com/radar/comprehension-debt-the-hidden-cost-of-ai-generated-code/) is the framing Osmosis is built around.
+
+The risk is measurable, not just anecdotal. In [Anthropic's randomized study](https://www.anthropic.com/research/AI-assistance-coding-skills), 52 mostly junior software engineers learning a new Python library scored 17% lower on an immediate comprehension quiz when using AI assistance than when coding by hand. Osmosis uses the agent's wait time to turn the work itself into short retrieval questions, so the owner builds a usable model of the technology while the project moves forward.
+
+## Adjacent tools
+
+**Aisance** is a PR-merge gate aimed at engineers. **[learn-codebase](https://github.com/ktaletsk/learn-codebase)** is a manually invoked Socratic codebase tutor for engineers. Osmosis instead triggers automatically during the non-technical builder's wait time, serves multiple-choice cards, and remembers mastery across projects.
 
 ## Quick start — one command
 
@@ -34,7 +47,7 @@ npm start
 npm start
 ```
 
-Open <http://localhost:4321>. The default provider is `none`, so it needs no API key and uses a local template lesson. In this temporary provider mode, Osmosis intentionally does not infer or grow a project tree; live curriculum card and tree generation belongs to the Step 4 providers.
+Open <http://localhost:4321>. The default provider is `none`, so it needs no API key and uses a local template lesson. In this temporary provider mode, Osmosis intentionally does not infer or grow a project tree; live curriculum card and tree generation belongs to the active generator providers.
 
 ## Use the local Codex provider
 
@@ -137,7 +150,7 @@ Use one report per completed milestone. Every field is English. Do not batch mil
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `OSMOSIS_PROVIDER` | `none` | `none` is the default template mode. `codex` is implemented with the local read-only Codex CLI. `openai` keeps the same interface but awaits API billing/key activation. |
+| `OSMOSIS_PROVIDER` | `none` | `none` is the default template mode. `codex` is implemented with the local read-only Codex CLI. `openai` is scaffolded behind the same interface and requires verified API billing plus a key before use. |
 | `OSMOSIS_MODE` | `live` | `live` runs the selected provider; `record` saves report-driven cards; `replay` consumes a local replay fixture in order. |
 | `OSMOSIS_PORT` | `4321` | Local HTTP/SSE port. Set `0` only when an isolated test needs an OS-assigned free port. |
 | `OSMOSIS_HOST` | `127.0.0.1` | Local bind address. |
@@ -257,6 +270,10 @@ The broker is local to one user profile and one loopback wall. It is designed fo
 
 ## How Osmosis was built
 
-Codex built all current product code in one primary thread. The current `codex` provider uses local read-only `codex exec` for strict card and tree generation; when the API billing gate is cleared, the `openai` backend will use GPT-5.6 Structured Outputs through the same curriculum interface. The wall is intentionally local-first and lives with its local Codex session.
+**Division of labor.** The human owner set product direction, sliced milestones, made every provider and privacy-boundary decision, and ran acceptance plus independent adversarial review on each delivery. Codex implemented all product code in one primary session thread.
+
+**GPT-5.6.** The Codex session building Osmosis runs on GPT-5.6 (Terra), so GPT-5.6 wrote every line of this codebase through Codex. At runtime, the local `codex` provider invokes Codex to write each lesson card and the initial project tree, so GPT-5.6 also writes the live lessons in that mode. The direct `openai` API backend remains scaffolded and switchable through the same curriculum interface, but is inactive until API billing is verified and an API key is supplied.
+
+The wall is intentionally local-first and lives with its local Codex session.
 
 The MCP is agent-agnostic even though the demo uses Codex.

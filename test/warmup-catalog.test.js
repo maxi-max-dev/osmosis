@@ -249,7 +249,8 @@ test('a malformed catalog is rejected before selection and explains the catalog 
   };
   const validation = validateWarmupCatalog(invalid);
   assert.equal(validation.valid, false);
-  assert.match(validation.errors.join(' '), /二十/);
+  assert.match(validation.errors.join(' '), /at least twenty concepts/);
+  assert.doesNotMatch(validation.errors.join(' '), /[\u3400-\u9fff]/u, 'developer-facing validation errors stay in English');
 
   const result = qualifyWarmupEvent({
     catalog: invalid,
