@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="warm">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#080c18" />
+    <meta name="theme-color" content="#fff7ea" />
     <title>Osmosis — Static replay demo</title>
     <style>
       :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #080c18; color: #eff4ff; }
@@ -67,6 +67,146 @@
       footer { color: #667594; font-size: .74rem; padding: 10px 18px 14px; text-align: right; }
       @media (max-width: 760px) { main { grid-template-columns: 1fr; } aside { border-bottom: 1px solid rgba(130, 157, 212, .2); border-right: 0; } aside, section { padding: 30px 22px; } }
       @media (max-width: 430px) { .top { flex-direction: column; gap: 12px; } }
+
+      /* The warm tokens mirror public/styles.css, but this replay stays self-contained. */
+      html[data-theme="warm"] {
+        font-family: ui-rounded, "SF Pro Rounded", "PingFang SC", "Hiragino Sans GB", Inter, system-ui, sans-serif;
+        --demo-bg: #fff7ea;
+        --demo-surface: #fffdf8;
+        --demo-surface-warm: #fff2dc;
+        --demo-surface-soft: #f5ead6;
+        --demo-ink: #26332e;
+        --demo-ink-strong: #18231f;
+        --demo-muted: #68736d;
+        --demo-muted-soft: #879089;
+        --demo-line: #dfd2bd;
+        --demo-line-strong: #cbb99a;
+        --demo-accent: #ef7657;
+        --demo-accent-hover: #d95e42;
+        --demo-accent-on: #fffdf8;
+        --demo-teal: #257e70;
+        --demo-teal-deep: #1d655a;
+        --demo-teal-soft: #dff3ed;
+        --demo-blue: #4f7dbd;
+        --demo-blue-soft: #e3efff;
+        --demo-gold: #c9972e;
+        --demo-gold-soft: #fff1c9;
+        --demo-green: #2d9a66;
+        --demo-green-soft: #e2f7e9;
+        --demo-red: #c8535e;
+        --demo-red-soft: #ffe6e6;
+        --demo-backdrop: rgba(38, 51, 46, .32);
+        --demo-shadow-sm: 0 6px 18px rgba(80, 58, 29, .08);
+        --demo-shadow: 0 22px 54px rgba(80, 58, 29, .12);
+        --demo-radius-sm: 12px;
+        --demo-radius-md: 20px;
+        --demo-radius-lg: 28px;
+        --demo-focus: #265f9e;
+      }
+      html[data-theme="buddy"] {
+        --demo-bg: #d3dddd;
+        --demo-surface: #f7fafa;
+        --demo-surface-warm: #e4ecec;
+        --demo-surface-soft: #dce7e7;
+        --demo-ink: #22383e;
+        --demo-ink-strong: #14262b;
+        --demo-muted: #45636a;
+        --demo-muted-soft: #637d83;
+        --demo-line: rgba(30, 58, 64, .2);
+        --demo-line-strong: rgba(30, 58, 64, .35);
+        --demo-accent: #0e7d88;
+        --demo-accent-hover: #0a5b64;
+        --demo-teal: #0e7d88;
+        --demo-teal-deep: #0a5b64;
+        --demo-teal-soft: rgba(14, 125, 136, .12);
+        --demo-blue: #526fa1;
+        --demo-blue-soft: #e3e9f6;
+        --demo-gold: #9a6d1b;
+        --demo-gold-soft: #f5e5bd;
+        --demo-green: #267d58;
+        --demo-green-soft: #d8efe3;
+        --demo-red: #a74e49;
+        --demo-red-soft: #f6dfdd;
+        --demo-shadow: 0 22px 48px rgba(24, 52, 58, .16), 0 4px 12px rgba(24, 52, 58, .08);
+        --demo-focus: #0a5b64;
+      }
+      /* Classic intentionally receives no visual overrides: it is the original dark replay. */
+      html[data-theme="classic"] { color-scheme: dark; }
+      html[data-theme="warm"], html[data-theme="buddy"] { background: var(--demo-bg); color: var(--demo-ink); color-scheme: light; }
+      html[data-theme="warm"] body { background: radial-gradient(circle at 82% 7%, rgba(239, 118, 87, .12), transparent 29rem), radial-gradient(circle at 3% 100%, rgba(37, 126, 112, .1), transparent 25rem), var(--demo-bg); }
+      html[data-theme="buddy"] body { background: radial-gradient(circle at 85% -5%, rgba(14, 125, 136, .09), transparent 30rem), radial-gradient(circle at 0% 105%, rgba(154, 109, 27, .1), transparent 26rem), var(--demo-bg); }
+      html[data-theme="warm"] button:focus-visible, html[data-theme="buddy"] button:focus-visible { outline: 3px solid var(--demo-focus); outline-offset: 3px; }
+      html[data-theme="warm"] aside, html[data-theme="buddy"] aside { background: var(--demo-surface-warm); border-color: var(--demo-line); }
+      html[data-theme="warm"] .eyebrow, html[data-theme="buddy"] .eyebrow { color: var(--demo-teal-deep); }
+      html[data-theme="warm"] .note, html[data-theme="warm"] .source, html[data-theme="buddy"] .note, html[data-theme="buddy"] .source { color: var(--demo-muted); }
+      html[data-theme="warm"] .recording-list li, html[data-theme="buddy"] .recording-list li { border-color: var(--demo-line-strong); color: var(--demo-muted); }
+      html[data-theme="warm"] .recording-list li.played, html[data-theme="buddy"] .recording-list li.played { border-color: var(--demo-teal); color: var(--demo-ink); }
+      html[data-theme="warm"] .recording-list li.active, html[data-theme="buddy"] .recording-list li.active { border-color: var(--demo-accent); color: var(--demo-ink-strong); }
+      html[data-theme="warm"] .tree-children, html[data-theme="buddy"] .tree-children { border-color: var(--demo-line-strong); }
+      html[data-theme="warm"] .tree-node-label, html[data-theme="buddy"] .tree-node-label { color: var(--demo-ink); }
+      html[data-theme="warm"] .tree-node-label::before, html[data-theme="buddy"] .tree-node-label::before { background: var(--demo-muted-soft); }
+      html[data-theme="warm"] .tree-node--branch > .tree-node-label, html[data-theme="buddy"] .tree-node--branch > .tree-node-label { color: var(--demo-ink-strong); }
+      html[data-theme="warm"] .tree-node--branch > .tree-node-label::before, html[data-theme="buddy"] .tree-node--branch > .tree-node-label::before { background: var(--demo-teal); }
+      html[data-theme="warm"] .tree-node--leaf > .tree-node-label::before, html[data-theme="buddy"] .tree-node--leaf > .tree-node-label::before { background: var(--demo-green); }
+      html[data-theme="warm"] .tree-node--carried > .tree-node-label, html[data-theme="buddy"] .tree-node--carried > .tree-node-label { color: var(--demo-gold); }
+      html[data-theme="warm"] .tree-node--carried > .tree-node-label::before, html[data-theme="buddy"] .tree-node--carried > .tree-node-label::before { background: var(--demo-gold); box-shadow: 0 0 0 3px var(--demo-gold-soft); }
+      html[data-theme="warm"] .carried-over-label, html[data-theme="buddy"] .carried-over-label { background: var(--demo-gold-soft); border-color: var(--demo-gold); color: var(--demo-gold); }
+      html[data-theme="warm"] .mode, html[data-theme="buddy"] .mode { border-color: var(--demo-green); color: var(--demo-green); }
+      html[data-theme="warm"] .banner, html[data-theme="buddy"] .banner { background: var(--demo-blue-soft); border-color: var(--demo-blue); color: var(--demo-ink); }
+      html[data-theme="warm"] .card, html[data-theme="buddy"] .card { background: var(--demo-surface); border-color: var(--demo-line); box-shadow: var(--demo-shadow); }
+      html[data-theme="warm"] .concept, html[data-theme="buddy"] .concept { color: var(--demo-teal-deep); }
+      html[data-theme="warm"] .answers button, html[data-theme="buddy"] .answers button { background: var(--demo-surface-warm); border-color: var(--demo-line-strong); color: var(--demo-ink); }
+      html[data-theme="warm"] .answers button:hover:not(:disabled), html[data-theme="buddy"] .answers button:hover:not(:disabled) { background: var(--demo-teal-soft); border-color: var(--demo-teal); }
+      html[data-theme="warm"] .answers button.correct, html[data-theme="buddy"] .answers button.correct { border-color: var(--demo-green); color: var(--demo-green); }
+      html[data-theme="warm"] .answers button.incorrect, html[data-theme="buddy"] .answers button.incorrect { border-color: var(--demo-red); color: var(--demo-red); }
+      html[data-theme="warm"] .feedback, html[data-theme="buddy"] .feedback { border-color: var(--demo-green); color: var(--demo-muted); }
+      html[data-theme="warm"] .feedback.incorrect, html[data-theme="buddy"] .feedback.incorrect { border-color: var(--demo-red); }
+      html[data-theme="warm"] .feedback strong, html[data-theme="buddy"] .feedback strong { color: var(--demo-ink-strong); }
+      html[data-theme="warm"] .advance, html[data-theme="buddy"] .advance { background: var(--demo-teal); color: #fff; }
+      html[data-theme="warm"] .empty, html[data-theme="buddy"] .empty { color: var(--demo-muted); }
+      html[data-theme="warm"] .carry-over, html[data-theme="buddy"] .carry-over { background: var(--demo-gold-soft); border-color: var(--demo-gold); }
+      html[data-theme="warm"] .snapshot-item, html[data-theme="buddy"] .snapshot-item { background: var(--demo-surface); }
+      html[data-theme="warm"] .snapshot-label, html[data-theme="buddy"] .snapshot-label { color: var(--demo-muted); }
+      html[data-theme="warm"] .snapshot-value, html[data-theme="buddy"] .snapshot-value { color: var(--demo-ink-strong); }
+      html[data-theme="warm"] .snapshot-detail, html[data-theme="buddy"] .snapshot-detail { color: var(--demo-muted); }
+      html[data-theme="warm"] .gold, html[data-theme="buddy"] .gold { color: var(--demo-gold); }
+      html[data-theme="warm"] .proof-tree-heading, html[data-theme="buddy"] .proof-tree-heading { color: var(--demo-ink-strong); }
+      html[data-theme="warm"] .tree-list--proof, html[data-theme="buddy"] .tree-list--proof { background: var(--demo-surface); }
+      html[data-theme="warm"] footer, html[data-theme="buddy"] footer { color: var(--demo-muted); }
+
+      .top-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 9px; justify-content: flex-end; }
+      .theme-switcher { align-items: center; border: 1px solid rgba(130, 157, 212, .35); border-radius: 999px; display: inline-flex; gap: 3px; padding: 3px; }
+      .theme-switcher-label { font-size: .66rem; font-weight: 800; letter-spacing: .06em; margin-left: 7px; opacity: .74; text-transform: uppercase; }
+      .theme-choice { background: transparent; border: 1px solid transparent; border-radius: 999px; color: inherit; cursor: pointer; font-size: .68rem; font-weight: 800; padding: 6px 8px; }
+      .theme-choice[aria-pressed="true"] { background: rgba(190, 209, 255, .18); border-color: rgba(190, 209, 255, .65); color: #eff4ff; }
+      html[data-theme="warm"] .theme-switcher, html[data-theme="buddy"] .theme-switcher { background: var(--demo-surface); border-color: var(--demo-line-strong); }
+      html[data-theme="warm"] .theme-choice, html[data-theme="buddy"] .theme-choice { color: var(--demo-muted); }
+      html[data-theme="warm"] .theme-choice[aria-pressed="true"], html[data-theme="buddy"] .theme-choice[aria-pressed="true"] { background: var(--demo-teal); border-color: var(--demo-teal); color: #fff; }
+
+      .buddy-panel { display: none; }
+      html[data-theme="buddy"] .buddy-panel { background: rgba(247, 250, 250, .64); border: 1px solid var(--demo-line); border-radius: 18px; display: grid; gap: 12px; margin-top: 28px; padding: 15px; }
+      .buddy-summary { align-items: center; display: flex; gap: 13px; }
+      .buddy-robot { animation: buddy-float 2.8s ease-in-out infinite; flex: 0 0 auto; height: 82px; position: relative; width: 76px; }
+      .buddy-robot .buddy-antenna { background: var(--demo-gold); border-radius: 999px; height: 19px; left: 36px; position: absolute; top: 1px; transform: rotate(12deg); width: 4px; }
+      .buddy-robot .buddy-antenna::after { background: var(--demo-gold); border-radius: 50%; content: ''; height: 9px; left: -3px; position: absolute; top: -5px; width: 9px; }
+      .buddy-robot .buddy-head { background: var(--demo-surface); border: 3px solid var(--demo-teal-deep); border-radius: 22px 22px 18px 18px; box-shadow: inset 0 -7px 0 rgba(14, 125, 136, .1); height: 42px; left: 12px; position: absolute; top: 15px; width: 53px; }
+      .buddy-robot .buddy-eye { background: var(--demo-teal-deep); border-radius: 50%; height: 7px; position: absolute; top: 16px; width: 7px; }
+      .buddy-robot .buddy-eye--left { left: 13px; }.buddy-robot .buddy-eye--right { right: 13px; }
+      .buddy-robot .buddy-mouth { background: var(--demo-teal-deep); border-radius: 0 0 999px 999px; bottom: 8px; height: 5px; left: 19px; position: absolute; width: 14px; }
+      .buddy-robot .buddy-body { background: var(--demo-teal); border: 3px solid var(--demo-teal-deep); border-radius: 16px 16px 13px 13px; bottom: 0; height: 30px; left: 18px; position: absolute; width: 42px; }
+      .buddy-robot .buddy-core { background: var(--demo-gold-soft); border: 2px solid var(--demo-gold); border-radius: 50%; height: 12px; left: 12px; position: absolute; top: 6px; width: 12px; }
+      .buddy-robot[data-state="answer-incorrect"] { transform: rotate(-5deg); }
+      .buddy-robot[data-state="answer-incorrect"] .buddy-mouth { border-radius: 999px 999px 0 0; bottom: 8px; }
+      .buddy-robot[data-state="answer-correct"] .buddy-core, .buddy-robot[data-state="complete"] .buddy-core { background: var(--demo-gold); box-shadow: 0 0 0 5px var(--demo-gold-soft); }
+      .buddy-copy { display: grid; gap: 4px; }.buddy-copy strong { color: var(--demo-ink-strong); font-size: .88rem; }.buddy-copy span { color: var(--demo-muted); font-size: .76rem; line-height: 1.45; }
+      .buddy-timeline { display: grid; gap: 6px; list-style: none; margin: 0; padding: 0; }
+      .buddy-timeline li { align-items: center; color: var(--demo-muted); display: grid; font-size: .72rem; gap: 8px; grid-template-columns: 10px minmax(0, 1fr); }
+      .buddy-timeline li::before { background: var(--demo-line-strong); border-radius: 50%; content: ''; height: 8px; width: 8px; }
+      .buddy-timeline li.is-played { color: var(--demo-ink); }.buddy-timeline li.is-played::before { background: var(--demo-green); }
+      .buddy-timeline li.is-current { color: var(--demo-ink-strong); font-weight: 800; }.buddy-timeline li.is-current::before { background: var(--demo-gold); box-shadow: 0 0 0 3px var(--demo-gold-soft); }
+      @keyframes buddy-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+      @media (prefers-reduced-motion: reduce) { .buddy-robot { animation: none; } }
+      @media (max-width: 620px) { .top-actions { justify-content: flex-start; }.theme-switcher-label { display: none; } }
     </style>
   </head>
   <body>
@@ -80,6 +220,17 @@
         <h2>Fixture knowledge tree</h2>
         <p class="note" id="fixture-tree-note"></p>
         <ol class="tree-list" id="fixture-tree" aria-label="Knowledge tree stored in the replay fixture"></ol>
+        <section class="buddy-panel" aria-label="Fixture replay companion">
+          <div class="buddy-summary">
+            <div class="buddy-robot" id="buddy-robot" data-state="ready" role="img" aria-label="Fixture companion is ready">
+              <span class="buddy-antenna"></span>
+              <span class="buddy-head"><span class="buddy-eye buddy-eye--left"></span><span class="buddy-eye buddy-eye--right"></span><span class="buddy-mouth"></span></span>
+              <span class="buddy-body"><span class="buddy-core"></span></span>
+            </div>
+            <div class="buddy-copy"><strong>Fixture companion</strong><span id="buddy-status">Ready for the first recorded milestone.</span></div>
+          </div>
+          <ol class="buddy-timeline" id="buddy-timeline" aria-label="Five recorded replay milestones"></ol>
+        </section>
       </aside>
       <section>
         <div class="top">
@@ -87,7 +238,15 @@
             <p class="eyebrow">Static replay</p>
             <h1>Learn while your agent works</h1>
           </div>
-          <span class="mode">No API key</span>
+          <div class="top-actions">
+            <div class="theme-switcher" role="group" aria-label="Choose demo theme">
+              <span class="theme-switcher-label">Theme</span>
+              <button class="theme-choice" type="button" data-theme-choice="warm" aria-pressed="true">Warm</button>
+              <button class="theme-choice" type="button" data-theme-choice="buddy" aria-pressed="false">Buddy</button>
+              <button class="theme-choice" type="button" data-theme-choice="classic" aria-pressed="false">Classic</button>
+            </div>
+            <span class="mode">No API key</span>
+          </div>
         </div>
         <p class="banner">This page deterministically replays a sanitized fixture recorded from the real Codex provider. Embedded provider: <code id="fixture-provider">loading</code>. It demonstrates the interaction flow and stored knowledge-tree evidence without an API key or live project.</p>
         <div id="card-area" aria-live="polite"></div>
@@ -413,8 +572,16 @@
         "result": "Only Ferry movement was generated; no duplicate Animation loop card."
       }
     </script>
+    <script src="./theme-controller.js"></script>
     <script>
       (() => {
+        let demoStorage = null;
+        try { demoStorage = window.localStorage; } catch { /* Local-file privacy settings may block storage. */ }
+        window.OsmosisDemoThemes?.initialize({
+          documentRef: document,
+          locationSearch: window.location.search,
+          storage: demoStorage
+        });
         const fixture = JSON.parse(document.querySelector('#replay-fixture').textContent);
         const projectBSnapshot = JSON.parse(document.querySelector('#project-b-snapshot').textContent);
         const state = { active: null, cursor: 0, strengths: {} };
@@ -423,6 +590,9 @@
         const fixtureTree = document.querySelector('#fixture-tree');
         const fixtureTreeNote = document.querySelector('#fixture-tree-note');
         const carryOverProof = document.querySelector('#carry-over-proof');
+        const buddyRobot = document.querySelector('#buddy-robot');
+        const buddyStatus = document.querySelector('#buddy-status');
+        const buddyTimeline = document.querySelector('#buddy-timeline');
 
         const escapeHtml = (value) => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
 
@@ -490,6 +660,27 @@
           carryOverProof.querySelector('#carry-over-tree').innerHTML = buildTreeMarkup(tree.nodes, carriedOverConceptIds);
         }
 
+        function renderBuddy() {
+          const active = state.active;
+          const done = state.cursor >= fixture.entries.length && !active;
+          const buddyState = !active
+            ? (done ? 'complete' : 'ready')
+            : (!active.answered ? 'question' : active.correct ? 'answer-correct' : 'answer-incorrect');
+          const status = !active
+            ? (done ? 'All five recorded milestones are complete.' : `Ready for recorded milestone ${state.cursor + 1} of 5.`)
+            : (!active.answered
+              ? `Showing recorded milestone ${active.entry.sequence} of 5.`
+              : (active.correct ? 'Answer recorded: correct.' : 'Answer recorded: review the explanation.'));
+          buddyRobot.dataset.state = buddyState;
+          buddyRobot.setAttribute('aria-label', `Fixture companion: ${status}`);
+          buddyStatus.textContent = status;
+          buddyTimeline.innerHTML = fixture.entries.slice(0, 5).map((entry, index) => {
+            const current = Boolean(active && active.entry.sequence === entry.sequence);
+            const played = index < state.cursor;
+            return `<li class="${current ? 'is-current' : played ? 'is-played' : ''}">${escapeHtml(entry.trigger.task)}</li>`;
+          }).join('');
+        }
+
         function renderCard() {
           const active = state.active;
           if (!active) {
@@ -551,6 +742,7 @@
         function render() {
           renderList();
           renderCard();
+          renderBuddy();
         }
 
         const provider = fixture.provider || 'unknown';
