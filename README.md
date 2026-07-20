@@ -7,7 +7,7 @@ This is a plain-JavaScript, local-first MCP server and browser UI built for the 
 > **Build status**
 >
 > - **Verified:** the local MCP server, browser Learning Studio, project-channel broker, shared cross-project mastery, record/replay fixtures, experimental Ambient Watch, experimental inline MCP Apps, and the local read-only Codex card/tree generator.
-> - **Pending:** the direct `openai` API provider is scaffolded and switchable, but needs verified API billing and an `OPENAI_API_KEY` before it can generate lessons.
+> - **Pending:** the direct `openai` provider interface is reserved, but its generation backend is not yet implemented. Once implemented, it would additionally need verified API billing and an `OPENAI_API_KEY` before it could generate lessons.
 
 ## The problem: comprehension debt
 
@@ -116,7 +116,7 @@ The iframe uses only loopback endpoints: it refreshes `GET /inline-card` while w
 
 Ambient Watch is an **experimental opt-in** that fills the wait window without relying on an agent to remember `osmosis_report`. Enable it explicitly with `OSMOSIS_AMBIENT=1`. The HTTP-owning Osmosis server tails newly appended records from active local Codex rollout JSONL files and can turn qualifying activity into a lesson while the agent is still working. It attaches at the end of logs that already exist when the watcher starts, so it does not replay earlier session history.
 
-Ambient Watch reads raw rollout records locally, then derives a small, sanitized metadata set: allowlisted command/tool technologies, file extensions, known frameworks, and the session working directory used for project matching. The watcher ignores the `osmosis` MCP server and its isolated generator marker to avoid feedback loops. Raw rollout records stay local; however, when `OSMOSIS_PROVIDER=codex` or `openai` is configured, that provider may receive the sanitized metadata needed to generate the lesson. In `none` mode it stays on the machine. Record and replay modes leave Ambient Watch off for deterministic fixtures.
+Ambient Watch reads raw rollout records locally, then derives a small, sanitized metadata set: allowlisted command/tool technologies, file extensions, known frameworks, and the session working directory used for project matching. The watcher ignores the `osmosis` MCP server and its isolated generator marker to avoid feedback loops. Raw rollout records stay local; the implemented `codex` provider may receive the sanitized metadata needed to generate a lesson, while the reserved `openai` interface does not make API calls yet. In `none` mode it stays on the machine. Record and replay modes leave Ambient Watch off for deterministic fixtures.
 
 Ambient observation never registers a project by itself. Only a runner/MCP registration can create a channel; an observed unknown root produces a sanitized `suppressed` trace in the user-level `unregistered` ledger, with no new tab or project-state write.
 
@@ -150,7 +150,7 @@ Use one report per completed milestone. Every field is English. Do not batch mil
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `OSMOSIS_PROVIDER` | `none` | `none` is the default template mode. `codex` is implemented with the local read-only Codex CLI. `openai` is scaffolded behind the same interface and requires verified API billing plus a key before use. |
+| `OSMOSIS_PROVIDER` | `none` | `none` is the default template mode. `codex` is implemented with the local read-only Codex CLI. `openai` is a reserved interface behind the same curriculum contract; its generation backend is not yet implemented, and a future implementation would also require verified API billing plus a key. |
 | `OSMOSIS_MODE` | `live` | `live` runs the selected provider; `record` saves report-driven cards; `replay` consumes a local replay fixture in order. |
 | `OSMOSIS_PORT` | `4321` | Local HTTP/SSE port. Set `0` only when an isolated test needs an OS-assigned free port. |
 | `OSMOSIS_HOST` | `127.0.0.1` | Local bind address. |
@@ -166,9 +166,9 @@ Use one report per completed milestone. Every field is English. Do not batch mil
 | `OSMOSIS_PROJECT_ARCHIVE_AFTER_DAYS` | `30` | Days of inactivity before a non-current channel collapses into the archived group. This never deletes channel data. |
 | `OSMOSIS_CODEX_COMMAND` | `codex` | Local Codex executable used by the `codex` provider. |
 | `OSMOSIS_CODEX_TIMEOUT_MS` | `60000` | Per-attempt timeout for a `codex exec` generation call. |
-| `OPENAI_API_KEY` | unset | Required only by the future `openai` provider; never commit it. |
+| `OPENAI_API_KEY` | unset | Would be required by a future implemented `openai` backend; never commit it. |
 
-Local data stays local by default: `~/.osmosis/profile.json` holds user-level mastery; `~/.osmosis/projects.json` holds lightweight project summaries; `~/.osmosis/ledger/` holds bounded per-project activity traces; and each target project's `.osmosis/tree.json`, `cards.json`, and `replay.json` hold channel state. Codex's own rollout logs live below the configured sessions root. They are private/ignored. Only the sanitized replay fixture in this repository is intended to ship. When an Ambient Watch lesson uses the `codex` or `openai` generator, its sanitized metadata is sent through that configured provider's normal request path.
+Local data stays local by default: `~/.osmosis/profile.json` holds user-level mastery; `~/.osmosis/projects.json` holds lightweight project summaries; `~/.osmosis/ledger/` holds bounded per-project activity traces; and each target project's `.osmosis/tree.json`, `cards.json`, and `replay.json` hold channel state. Codex's own rollout logs live below the configured sessions root. They are private/ignored. Only the sanitized replay fixture in this repository is intended to ship. When an Ambient Watch lesson uses the implemented `codex` generator, its sanitized metadata is sent through that provider's local request path; the reserved `openai` interface has no generation request path yet.
 
 ## Testing
 
@@ -256,7 +256,7 @@ The included [sanitized-codex-replay.json](fixtures/sanitized-codex-replay.json)
 
 ## Replay and public demo
 
-The [static replay page](docs/index.html) is a single deployable file in `docs/`: no API key, local server, or live agent is required. Configure GitHub Pages to deploy the `/docs` directory for a judge-facing URL. It renders the real Codex-provider fixture tree and cards, plus a separately sanitised Project B tree where `Animation loop` is visibly gold `CARRIED OVER` from the shared profile while only the new `Ferry movement` card is recorded. No public judge URL is claimed until a remote repository and GitHub Pages deployment exist.
+The [static replay page](docs/index.html) is an offline-deployable static demo page composed of local assets under `docs/`: no API key, local server, or live agent is required. Configure GitHub Pages to deploy the `/docs` directory for a judge-facing URL. It renders the real Codex-provider fixture tree and cards, plus a separately sanitised Project B tree where `Animation loop` is visibly gold `CARRIED OVER` from the shared profile while only the new `Ferry movement` card is recorded. No public judge URL is claimed until a remote repository and GitHub Pages deployment exist.
 
 ## Current boundary
 
@@ -272,7 +272,7 @@ The broker is local to one user profile and one loopback wall. It is designed fo
 
 **Division of labor.** The human owner set product direction, sliced milestones, made every provider and privacy-boundary decision, and ran acceptance plus independent adversarial review on each delivery. Codex implemented all product code in one primary session thread.
 
-**GPT-5.6.** The Codex session building Osmosis runs on GPT-5.6 (Terra), so GPT-5.6 wrote every line of this codebase through Codex. At runtime, the local `codex` provider invokes Codex to write each lesson card and the initial project tree, so GPT-5.6 also writes the live lessons in that mode. The direct `openai` API backend remains scaffolded and switchable through the same curriculum interface, but is inactive until API billing is verified and an API key is supplied.
+**GPT-5.6.** In this submission and its recording environment, the primary Codex session ran on GPT-5.6 (Terra), which wrote every line of this codebase and the recorded lesson cards through Codex; at runtime, however, the local `codex` provider inherits the runner's local Codex model configuration rather than fixing generations to GPT-5.6. The direct `openai` interface is reserved through the same curriculum contract, but its generation backend is not yet implemented; once implemented, it would additionally require verified API billing and an API key.
 
 The wall is intentionally local-first and lives with its local Codex session.
 
