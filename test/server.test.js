@@ -422,9 +422,18 @@ async function writeSequencedCodexShim(directory) {
       explanation: 'JSON is a shared, predictable structure for exchanging information.',
     },
   ].map(JSON.stringify);
+  const warmupTargetCard = JSON.stringify({
+    concept_id: 'search-with-rg',
+    concept_name: 'Search with rg',
+    lesson: 'A focused search narrows a large project to the few places worth inspecting, like using an index before opening every page in a book.',
+    question: 'What is the main value of a focused code search?',
+    options: ['It narrows where to inspect.', 'It automatically changes every result.', 'It removes the need to test changes.'],
+    correct_index: 0,
+    explanation: 'A search points to relevant places; it does not make the later decision for you.',
+  });
   await fs.writeFile(
     shimPath,
-    `#!/usr/bin/env node\n'use strict';\nconst fs = require('node:fs');\nconst args = process.argv.slice(2);\nconst outputPath = args[args.indexOf('--output-last-message') + 1];\nconst schemaPath = args[args.indexOf('--output-schema') + 1];\nconst tree = ${JSON.stringify(tree)};\nconst cards = ${JSON.stringify(cards)};\nconst counterPath = ${JSON.stringify(counterPath)};\nlet result = tree;\nif (!schemaPath.endsWith('tree-output.schema.json')) {\n  let count = 0;\n  try { count = Number.parseInt(fs.readFileSync(counterPath, 'utf8'), 10) || 0; } catch {}\n  fs.writeFileSync(counterPath, String(count + 1));\n  result = cards[Math.min(count, cards.length - 1)];\n}\nfs.writeFileSync(outputPath, result);\nprocess.stdout.write(result);\n`,
+    `#!/usr/bin/env node\n'use strict';\nconst fs = require('node:fs');\nconst args = process.argv.slice(2);\nconst outputPath = args[args.indexOf('--output-last-message') + 1];\nconst schemaPath = args[args.indexOf('--output-schema') + 1];\nconst prompt = args.at(-1) || '';\nconst tree = ${JSON.stringify(tree)};\nconst cards = ${JSON.stringify(cards)};\nconst warmupTargetCard = ${JSON.stringify(warmupTargetCard)};\nconst counterPath = ${JSON.stringify(counterPath)};\nlet result = tree;\nif (!schemaPath.endsWith('tree-output.schema.json')) {\n  if (/REQUIRED_CANONICAL_CONCEPT_ID=\\"search-with-rg\\"/.test(prompt)) {\n    result = warmupTargetCard;\n  } else {\n    let count = 0;\n    try { count = Number.parseInt(fs.readFileSync(counterPath, 'utf8'), 10) || 0; } catch {}\n    fs.writeFileSync(counterPath, String(count + 1));\n    result = cards[Math.min(count, cards.length - 1)];\n  }\n}\nfs.writeFileSync(outputPath, result);\nprocess.stdout.write(result);\n`,
     { mode: 0o755 },
   );
   return shimPath;
@@ -1339,7 +1348,8 @@ test('Ambient Watch drives a registered project from an answered Now to a live r
   const sessionsDir = await temporaryProject(cleanup);
   // The none provider intentionally uses one template concept. A sequenced
   // Codex shim makes this end-to-end contract prove the real case instead:
-  // answer HTTP correctly, then let an observed event generate distinct JSON.
+  // answer HTTP correctly, then let an observed `rg` event produce its
+  // canonical warmup follow-up as the distinct Next lesson.
   const codexCommand = await writeSequencedCodexShim(primaryCwd);
   const now = new Date();
   const rolloutDirectory = path.join(
@@ -1477,7 +1487,7 @@ test('Ambient Watch drives a registered project from an answered Now to a live r
   const advanced = await next.json();
   assert.equal(advanced.advanced, true);
   assert.equal(advanced.card.source.kind, 'observed-activity');
-  assert.match(advanced.card.concept_id, /:json$/);
+  assert.match(advanced.card.concept_id, /:search-with-rg$/);
   assert.notEqual(advanced.card.concept_id, firstCard.concept_id, 'the observed follow-up is a distinct unmastered concept');
   assert.equal(advanced.studio.current.card_id, advanced.card.card_id);
   assert.equal(advanced.studio.next_ready, false);

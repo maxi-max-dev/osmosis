@@ -54,7 +54,7 @@ function observedReport(epoch) {
   };
 }
 
-function harness({ state = { cards: [], strengths: {}, studio: null }, ledger = null, transitionHook = null } = {}) {
+function harness({ state = { cards: [], strengths: {}, studio: null }, ledger = null, transitionHook = null, generate = null } = {}) {
   let latest = null;
   const events = [];
   const entries = [];
@@ -76,6 +76,7 @@ function harness({ state = { cards: [], strengths: {}, studio: null }, ledger = 
         latest = { cards: clone(cards), studio: clone(savedStudio) };
       },
     },
+    ...(typeof generate === 'function' ? { generate } : {}),
     transitionHook,
   });
   return {
@@ -158,6 +159,52 @@ test('a persisted Studio recovers each authoritative Now variant after a restart
   assert.deepEqual(emptyRecovery.studio.projection().now, { kind: null, card_ref: null });
   assert.equal(emptyRecovery.studio.projection().current, null);
   assert.equal(emptyRecovery.studio.projection().current_warmup, null);
+});
+
+test('a warmup persists its observed-to-preparing activity phase with the observation id through a reconnect', async () => {
+  let releaseGeneration;
+  const h = harness({
+    generate: () => new Promise((resolve) => {
+      releaseGeneration = resolve;
+    }),
+  });
+  await h.studio.onWarmupCandidate({
+    activity_epoch_id: 'epoch-progress',
+    concept_id: 'search-with-rg',
+    dedupe_key: 'project:session-progress:search-with-rg',
+    observation_id: 'observation-progress',
+    report: observedReport('epoch-progress'),
+    warmup: warmup('warmup-progress', 'epoch-progress'),
+  });
+
+  assert.deepEqual(h.studio.projection().progress, {
+    phase: 'observed',
+    observation_id: 'observation-progress',
+    reason: 'warmup-eligible',
+    updated_at: h.studio.projection().progress.updated_at,
+  });
+  const starting = h.studio.pump();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(h.studio.projection().progress, {
+    phase: 'preparing',
+    observation_id: 'observation-progress',
+    reason: 'formal-lesson',
+    updated_at: h.studio.projection().progress.updated_at,
+  });
+  assert.equal(
+    h.events.some((event) => event.type === 'studio' && event.payload.progress?.phase === 'preparing'),
+    true,
+    'the live Studio SSE projection exposes the same durable phase',
+  );
+
+  const reconnect = harness({ state: h.latest() });
+  assert.equal(reconnect.studio.projection().progress?.phase, 'preparing');
+  assert.equal(reconnect.studio.projection().progress?.observation_id, 'observation-progress');
+  assert.equal(reconnect.studio.projection().progress?.reason, 'formal-lesson');
+
+  releaseGeneration({ state: 'suppressed', reason: 'generation-failed' });
+  await starting;
 });
 
 test('only a same-epoch real card replaces an untouched warmup; an unrelated card remains Next', async () => {

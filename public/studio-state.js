@@ -102,6 +102,64 @@
     };
   }
 
+  // This is intentionally a separate wire field from `waiting`. Waiting is a
+  // scheduler summary; progress is the durable, traceable fast-path promise
+  // that a particular observed activity has been accepted and is moving
+  // toward a real lesson.
+  function normalizeProgress(value) {
+    if (value === null) return null;
+    const progress = objectOrNull(value);
+    if (!progress) return null;
+    const phase = progress.phase === 'observed' || progress.phase === 'preparing'
+      ? progress.phase
+      : null;
+    const observationId = typeof progress.observation_id === 'string'
+      ? progress.observation_id.trim().slice(0, 160)
+      : '';
+    const reason = typeof progress.reason === 'string'
+      ? progress.reason.trim().slice(0, 160)
+      : '';
+    if (!phase || !observationId || !reason) return null;
+    return {
+      phase,
+      observation_id: observationId,
+      reason,
+      ...(typeof progress.updated_at === 'string' && progress.updated_at.trim()
+        ? { updated_at: progress.updated_at.trim().slice(0, 64) }
+        : {}),
+    };
+  }
+
+  function progressReasonCopy(reason) {
+    const copy = {
+      'warmup-eligible': '这次观察已通过即时热身检查。',
+      'formal-lesson': '正在根据这次观察准备正式课程。',
+      'generation-queue-full': '这次观察已记录，正在等待可用的备课位置。',
+      'generation-queued': '这次观察已记录，正在等待可用的备课位置。',
+      'rate-limited': '这次观察已记录，正在等待合适的备课时机。',
+    };
+    return copy[reason] || '这次观察已记录，正在等待下一步。';
+  }
+
+  /**
+   * Pure presentation data keeps the functional Chinese progress copy shared
+   * by the connection indicator and the Studio wall, while tests can verify
+   * it without a browser DOM.
+   */
+  function describeProgress(value) {
+    const progress = normalizeProgress(value);
+    if (!progress) return null;
+    const preparing = progress.phase === 'preparing';
+    return {
+      ...progress,
+      badge: preparing ? '备课中' : '已观察',
+      title: preparing
+        ? '正在根据已观察到的智能体活动准备课程。'
+        : '已观察到智能体正在进行本地开发操作。',
+      detail: progressReasonCopy(progress.reason),
+    };
+  }
+
   function normalizeNow(value) {
     const now = objectOrNull(value);
     if (!now) return null;
@@ -150,6 +208,7 @@
     const hasNow = Boolean(studio && hasOwn(studio, 'now'));
     const hasCurrent = Boolean(studio && hasOwn(studio, 'current'));
     const hasWarmup = Boolean(studio && hasOwn(studio, 'current_warmup'));
+    const hasProgress = Boolean(studio && hasOwn(studio, 'progress'));
     const rawCurrent = hasCurrent ? objectOrNull(studio.current) : null;
     const previousNow = normalizeNow(previous?.now) || { kind: null, card_ref: null };
     const previousWarmup = normalizeWarmup(previous?.current_warmup);
@@ -194,6 +253,11 @@
       : previous && hasOwn(previous, 'waiting')
         ? normalizeWaiting(previous.waiting)
         : { reason: 'idle', source_provenance: null };
+    const progress = studio && hasProgress
+      ? normalizeProgress(studio.progress)
+      : previous && hasOwn(previous, 'progress')
+        ? normalizeProgress(previous.progress)
+        : null;
     const interactionToken = Number.isInteger(studio?.interaction_token)
       ? studio.interaction_token
       : Number.isInteger(previous?.interaction_token)
@@ -204,6 +268,7 @@
       current,
       current_warmup: currentWarmup,
       next_ready: nextReady,
+      progress,
       waiting,
       ...(interactionToken === null ? {} : { interaction_token: interactionToken }),
     };
@@ -361,12 +426,14 @@
     buildStudioRoute,
     claimAutoAdvance,
     createAutoAdvanceState,
+    describeProgress,
     isActiveNowContext,
     mergeStudioCurrent,
     noteNextReady,
     noteNextUnavailable,
     noteStudioInteraction,
     nextControlState,
+    normalizeProgress,
     normalizeStudioContract,
     parseStudioRoute,
     selectStudioRouteFromUser,

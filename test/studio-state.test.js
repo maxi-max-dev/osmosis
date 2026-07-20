@@ -10,6 +10,7 @@ const {
   buildStudioRoute,
   claimAutoAdvance,
   createAutoAdvanceState,
+  describeProgress,
   isActiveNowContext,
   mergeStudioCurrent,
   noteNextReady,
@@ -17,6 +18,7 @@ const {
   noteStudioInteraction,
   nextControlState,
   normalizeStudioContract,
+  normalizeProgress,
   parseStudioRoute,
   selectStudioRouteFromUser,
   setAutoAdvanceEnabled,
@@ -164,6 +166,51 @@ test('the client treats current_warmup as the authoritative warmup Now and never
   assert.deepEqual(replacement.now, { kind: 'real', card_ref: 'real-replacement' });
   assert.equal(replacement.current.card_id, 'real-replacement');
   assert.equal(replacement.current_warmup, null);
+});
+
+test('a durable observed-to-preparing progress phase survives an SSE reconnect with Chinese presentation copy', () => {
+  const observed = normalizeStudioContract({
+    now: { kind: null, card_ref: null },
+    current: null,
+    current_warmup: null,
+    next_ready: false,
+    progress: {
+      phase: 'observed',
+      observation_id: 'observation-42',
+      reason: 'warmup-eligible',
+    },
+    waiting: { reason: 'queued', source_provenance: null },
+  });
+  assert.deepEqual(observed.progress, {
+    phase: 'observed',
+    observation_id: 'observation-42',
+    reason: 'warmup-eligible',
+  });
+  assert.match(describeProgress(observed.progress).title, /已观察到智能体/);
+
+  // A reconnect receives another full snapshot rather than relying on a
+  // transient status toast. The exact observation and reason must remain.
+  const reconnected = normalizeStudioContract({
+    now: { kind: null, card_ref: null },
+    current: null,
+    current_warmup: null,
+    next_ready: false,
+    progress: {
+      phase: 'preparing',
+      observation_id: 'observation-42',
+      reason: 'formal-lesson',
+    },
+    waiting: { reason: 'preparing', source_provenance: null },
+  }, observed);
+  assert.deepEqual(normalizeProgress(reconnected.progress), {
+    phase: 'preparing',
+    observation_id: 'observation-42',
+    reason: 'formal-lesson',
+  });
+  const presentation = describeProgress(reconnected.progress);
+  assert.equal(presentation.badge, '备课中');
+  assert.match(presentation.title, /已观察到的智能体活动/);
+  assert.match(presentation.detail, /正式课程/);
 });
 
 test('auto advance is voluntary by default and needs an enabled setting, a ready Next card, and a full delay', () => {

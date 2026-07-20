@@ -1,12 +1,17 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const test = require('node:test');
 
 const {
   WARMUP_CATALOG,
+  WARMUP_CATALOG_PATH,
   canonicalWarmupConceptId,
   catalogEntryForConceptId,
+  loadWarmupCatalog,
   makeWarmupCandidate,
   matchesForWarmupEvent,
   observationsFromEvent,
@@ -62,11 +67,20 @@ test('the warmup catalog is a valid Chinese fixed library with at least twenty c
     'git diff',
     'git commit',
     'node --watch',
+    'jq',
+    'tmux',
+    'fetch',
+    'SSE',
+    'curl -N',
+    'grep',
+    'CSS',
   ]);
 
   assert.equal(result.valid, true, result.errors.join('\n'));
   assert.ok(WARMUP_CATALOG.concepts.length >= 20);
   assert.equal(WARMUP_CATALOG.catalog_version, 1);
+  assert.equal(path.extname(WARMUP_CATALOG_PATH), '.json');
+  assert.deepEqual(JSON.parse(fs.readFileSync(WARMUP_CATALOG_PATH, 'utf8')), WARMUP_CATALOG);
 
   for (const concept of WARMUP_CATALOG.concepts) {
     const userCopy = [concept.title, concept.lesson, concept.question, ...concept.options, concept.explanation];
@@ -102,6 +116,50 @@ test('warmup exec matching uses the first parsed argv and never guesses from she
 
   assert.deepEqual(matchIds(execEvent(JSON.stringify({ cmd: 'node --test test/unit.js' }))), ['node-test-runner']);
   assert.deepEqual(matchIds(execEvent(JSON.stringify({ cmd: 'node test/unit.js' }))), []);
+});
+
+test('the JSON catalog has exact structured triggers for the newly required technologies', () => {
+  const cases = [
+    {
+      concept: 'json-query-with-jq',
+      event: execEvent(JSON.stringify({ cmd: 'jq .items data.json' })),
+      rejected: execEvent(JSON.stringify({ cmd: 'echo jq' })),
+    },
+    {
+      concept: 'terminal-multiplexing',
+      event: execEvent({ argv: ['tmux', 'new-session', '-d'] }),
+      rejected: execEvent(JSON.stringify({ cmd: 'echo tmux' })),
+    },
+    {
+      concept: 'web-fetch',
+      event: mcpEvent('web', 'fetch'),
+      rejected: mcpEvent('web', 'Fetch'),
+    },
+    {
+      concept: 'server-sent-events',
+      event: execEvent(JSON.stringify({ cmd: 'curl -N http://127.0.0.1:4321/events' })),
+      rejected: execEvent(JSON.stringify({ cmd: 'curl http://127.0.0.1:4321/events' })),
+    },
+    {
+      concept: 'regular-expression-search',
+      event: execEvent(JSON.stringify({ cmd: 'grep -E "warmup_[a-z]+" ledger.jsonl' })),
+      rejected: execEvent(JSON.stringify({ cmd: 'echo grep' })),
+    },
+  ];
+
+  for (const { concept, event, rejected } of cases) {
+    assert.ok(matchIds(event).includes(concept), `${concept} should match its precise structured event`);
+    assert.equal(matchIds(rejected).includes(concept), false, `${concept} must not match text alone or a near miss`);
+  }
+
+  const cssMatches = matchIds(patchEvent({ '/private/project/public/status.css': 'redacted source' }));
+  assert.equal(cssMatches[0], 'css-animation', 'the exact .css extension selects the specific animation warmup first');
+  assert.ok(cssMatches.includes('style-change'), 'the pre-existing generic style lesson remains allowlisted');
+  assert.equal(
+    matchIds(patchEvent({ '/private/project/public/status.cssx': 'redacted source' })).includes('css-animation'),
+    false,
+    'a longer filename suffix is not a .css extension match',
+  );
 });
 
 test('a multi-match structured command has one deterministic warmup concept, never two local cards', () => {
@@ -200,4 +258,38 @@ test('a malformed catalog is rejected before selection and explains the catalog 
   assert.deepEqual(result.qualified, false);
   assert.equal(result.reason, 'catalog-invalid');
   assert.equal(result.matches.length, 0);
+});
+
+test('the JSON loader contains parse and schema failures as catalog-invalid suppressions', (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'osmosis-warmup-catalog-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+
+  const malformedPath = path.join(directory, 'malformed.json');
+  fs.writeFileSync(malformedPath, '{not valid json}', 'utf8');
+  const malformed = loadWarmupCatalog(malformedPath);
+  assert.equal(malformed, null);
+  assert.equal(validateWarmupCatalog(malformed).valid, false);
+
+  const malformedResult = qualifyWarmupEvent({
+    catalog: malformed,
+    event: execEvent(JSON.stringify({ cmd: 'jq .items data.json' })),
+  });
+  assert.equal(malformedResult.reason, 'catalog-invalid');
+
+  const wrongSchemaPath = path.join(directory, 'wrong-schema.json');
+  fs.writeFileSync(wrongSchemaPath, JSON.stringify({
+    catalog_version: 1,
+    concepts: [],
+    unexpected: true,
+  }), 'utf8');
+  const wrongSchema = loadWarmupCatalog(wrongSchemaPath);
+  assert.equal(wrongSchema, null, 'schema-invalid JSON never becomes a loaded catalog');
+  assert.equal(validateWarmupCatalog(wrongSchema).valid, false);
+  assert.equal(
+    qualifyWarmupEvent({
+      catalog: wrongSchema,
+      event: execEvent(JSON.stringify({ cmd: 'jq .items data.json' })),
+    }).reason,
+    'catalog-invalid',
+  );
 });

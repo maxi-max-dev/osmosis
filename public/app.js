@@ -139,6 +139,37 @@
     return `<span class="provenance-label provenance-label--${kind}">${escapeHtml(sourceLabel(source))}</span>${compact ? '' : `<span class="source-copy">${escapeHtml(sourceText(source))}</span>`}`;
   }
 
+  function studioProgress(value) {
+    const described = studioState?.describeProgress?.(value);
+    if (described) return described;
+    if (!value || typeof value !== 'object') return null;
+    const phase = value.phase === 'preparing' || value.phase === 'observed' ? value.phase : null;
+    const observationId = typeof value.observation_id === 'string' ? value.observation_id.trim() : '';
+    const reason = typeof value.reason === 'string' ? value.reason.trim() : '';
+    if (!phase || !observationId || !reason) return null;
+    const preparing = phase === 'preparing';
+    return {
+      phase,
+      observation_id: observationId,
+      reason,
+      badge: preparing ? '备课中' : '已观察',
+      title: preparing ? '正在根据已观察到的智能体活动准备课程。' : '已观察到智能体正在进行本地开发操作。',
+      detail: preparing ? '正在根据这次观察准备正式课程。' : '这次观察已通过即时热身检查。',
+    };
+  }
+
+  function progressMarkup(value, { compact = false } = {}) {
+    const progress = studioProgress(value);
+    if (!progress) return '';
+    const trace = progress.observation_id.slice(0, 12);
+    return `<section class="progress-phase progress-phase--${escapeHtml(progress.phase)}" data-observation-id="${escapeHtml(progress.observation_id)}" data-progress-reason="${escapeHtml(progress.reason)}" aria-live="polite">
+      <p class="eyebrow">${escapeHtml(progress.badge)}</p>
+      ${compact ? '' : `<h3>${escapeHtml(progress.title)}</h3>`}
+      <p>${escapeHtml(progress.detail)}</p>
+      <small>观察编号：${escapeHtml(trace)} · 原因：${escapeHtml(progress.reason)}</small>
+    </section>`;
+  }
+
   function updateSummary(summary) {
     if (!summary || typeof summary.project_id !== 'string') return;
     const project = projectFor(summary.project_id);
@@ -240,17 +271,20 @@
   function statusForActive() {
     const project = activeProject();
     const studio = project?.studio;
-    if (store.settings.global_learning === 'paused') return 'Paused';
-    if (['preparing', 'queued'].includes(studio?.waiting?.reason)) return provider === 'codex' ? 'Generating · slower' : 'Preparing';
-    if (studio?.next_ready) return 'Next is ready';
-    return 'Listening';
+    const progress = studioProgress(studio?.progress);
+    if (store.settings.global_learning === 'paused') return '学习已暂停';
+    if (progress?.phase === 'preparing') return '备课中';
+    if (progress?.phase === 'observed') return '已观察到活动';
+    if (['preparing', 'queued'].includes(studio?.waiting?.reason)) return '正在准备课程';
+    if (studio?.next_ready) return '下一课已就绪';
+    return '等待新的有用活动';
   }
 
   function renderConnection() {
     connection.textContent = statusForActive();
     connection.classList.toggle('live', store.settings.global_learning !== 'paused');
     connection.classList.toggle('paused', store.settings.global_learning === 'paused');
-    modeFooter.textContent = `${store.settings.global_learning === 'paused' ? 'paused' : 'live'} · ${provider}`;
+    modeFooter.textContent = `${store.settings.global_learning === 'paused' ? '已暂停' : '实时'} · ${provider}`;
   }
 
   function markActivity(projectId, { ready = true } = {}) {
@@ -368,7 +402,9 @@
     }
   }
 
-  function waitingMarkup(waiting) {
+  function waitingMarkup(studio) {
+    const waiting = studio?.waiting || studio;
+    const progress = studioProgress(studio?.progress);
     const source = waiting?.source_provenance;
     const provenance = source
       ? `<p class="waiting-source">${sourceMarkup(source)}</p>`
@@ -376,13 +412,20 @@
     const preparing = waiting?.reason === 'preparing';
     const queued = waiting?.reason === 'queued';
     const message = preparing
-      ? 'Preparing a lesson from the latest useful signal.'
+      ? '正在根据最新的有用活动准备课程。'
       : queued
-        ? 'A useful signal is waiting for room in your next lesson.'
-        : 'Keep working — Osmosis will prepare the next lesson when it sees a useful signal.';
+        ? '已观察到的活动正在等待下一课的可用位置。'
+        : '继续工作吧；看到有用活动后，Osmosis 会准备下一课。';
+    if (progress) {
+      return `<article class="waiting-card waiting-card--progress">
+        <span class="waiting-orb" aria-hidden="true"></span>
+        ${progressMarkup(progress)}
+        ${provenance}
+      </article>`;
+    }
     return `<article class="waiting-card">
       <span class="waiting-orb" aria-hidden="true"></span>
-      <p class="eyebrow">${preparing ? 'Preparing next' : queued ? 'Next signal queued' : 'Listening for useful work'}</p>
+      <p class="eyebrow">${preparing ? '正在备课' : queued ? '活动已排队' : '等待有用活动'}</p>
       <h3>${escapeHtml(message)}</h3>
       ${provenance}
     </article>`;
@@ -405,7 +448,7 @@
       </div>`;
     }
     return `<div class="next-waiting">
-        <button class="next-lesson next-lesson--muted" type="button" disabled>${hasWork ? 'Preparing next…' : 'Nothing relevant yet'}</button>
+        <button class="next-lesson next-lesson--muted" type="button" disabled>${hasWork ? '正在准备下一课…' : '暂时没有新的相关课程'}</button>
         ${hasWork && source ? `<p>${sourceMarkup(source, { compact: true })}<span>${escapeHtml(sourceText(source))}</span></p>` : ''}
       </div>`;
   }
@@ -435,6 +478,7 @@
       <div class="card-topline"><p class="card-kicker">即时热身</p><span class="now-status">一题小练习</span></div>
       <p class="card-concept">${escapeHtml(card.title || card.concept_name || '刚刚用到的概念')}</p>
       <p class="source-line source-line--observed-activity"><span class="provenance-label provenance-label--observed-activity">观察到的活动</span><span class="source-copy">根据刚刚的本地操作准备</span></p>
+      ${progressMarkup(project.studio?.progress, { compact: true })}
       <p class="lesson-copy">${escapeHtml(card.lesson || '')}</p>
       <h3>${escapeHtml(card.question || '')}</h3>
       <div class="answers" aria-label="答案选项">${choices}</div>
@@ -451,7 +495,7 @@
     const warmup = currentWarmup(project);
     if (warmup) return renderWarmupNow(project, warmup);
     const card = project.studio?.current;
-    if (!card) return waitingMarkup(project.studio?.waiting);
+    if (!card) return waitingMarkup(project.studio);
     const pending = store.pendingAnswers.get(project.project_id);
     const answered = Boolean(card.state?.answered);
     const selectedIndex = answered ? card.state.chosen_index : pending?.cardId === card.card_id ? pending.index : null;
@@ -475,6 +519,7 @@
       <div class="card-topline"><p class="card-kicker">Now</p><span class="now-status">one question</span></div>
       <p class="card-concept">${escapeHtml(card.concept_name)}</p>
       <p class="source-line source-line--${sourceKind(card.source)}">${sourceMarkup(card.source)}</p>
+      ${progressMarkup(project.studio?.progress, { compact: true })}
       <p class="lesson-copy">${escapeHtml(card.lesson)}</p>
       <h3>${escapeHtml(card.question)}</h3>
       <div class="answers" aria-label="Answer choices">${choices}</div>
