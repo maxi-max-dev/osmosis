@@ -207,6 +207,55 @@ test('a warmup persists its observed-to-preparing activity phase with the observ
   await starting;
 });
 
+test('fast-path SSE and reconnect presentation phases stay monotonic from observed to idle', async () => {
+  let releaseGeneration;
+  const h = harness({
+    generate: () => new Promise((resolve) => {
+      releaseGeneration = resolve;
+    }),
+  });
+  const request = {
+    activity_epoch_id: 'epoch-monotonic',
+    concept_id: 'search-with-rg',
+    dedupe_key: 'project:session-monotonic:search-with-rg',
+    observation_id: 'observation-monotonic',
+    report: observedReport('epoch-monotonic'),
+    warmup: warmup('warmup-monotonic', 'epoch-monotonic'),
+  };
+  const reconnectedPhase = () => {
+    const persisted = h.latest();
+    return studioSnapshot(normalizeStudioState(persisted.studio, persisted.cards), persisted.cards).presentation.phase;
+  };
+
+  await h.studio.onWarmupCandidate(request);
+  assert.equal(reconnectedPhase(), 'observed', 'an atomic observed+warmup commit never claims the true lesson is already ready');
+
+  const generating = h.studio.pump();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(reconnectedPhase(), 'preparing', 'the paired true-card generation advances monotonically after the warmup is visible');
+
+  releaseGeneration({ state: 'generated', card: realCard('real-monotonic', 'search-with-rg') });
+  await generating;
+  assert.equal(reconnectedPhase(), 'card-ready');
+
+  const answer = createAnswerService({
+    cardService: { clearPendingByConcept: () => 0, persistCards: async () => {} },
+    hub: { broadcast() {} },
+    persistence: { saveProfile: async () => {} },
+    state: h.state,
+    studio: h.studio,
+  });
+  await answer.answer({ card_id: 'real-monotonic', chosen_index: 0 });
+  await h.studio.whenIdle();
+  assert.equal(reconnectedPhase(), 'idle', 'a correct real-card answer completes the visible activity episode');
+
+  const visiblePhases = h.events
+    .filter((event) => event.type === 'studio')
+    .map((event) => event.payload.presentation?.phase)
+    .filter(Boolean);
+  assert.deepEqual(visiblePhases, ['observed', 'preparing', 'card-ready', 'idle']);
+});
+
 test('only a same-epoch real card replaces an untouched warmup; an unrelated card remains Next', async () => {
   const h = harness();
   const served = await h.studio.onWarmupCandidate({

@@ -19,11 +19,13 @@
     strengths: {},
     studioView: 'now',
     conversationTitles: new Map(),
+    celebration: null,
   };
 
   let provider = 'none';
   let toastTimer = null;
   const seenStartupNotices = new Set();
+  const celebratedAnswerEpisodes = new Set();
 
   const cardStage = document.querySelector('#studio-stage');
   const trail = document.querySelector('#learning-trail');
@@ -74,6 +76,7 @@
       warmup_feedback: '这是一张即时热身，不会写入掌握度或课程记录。', why_no_card: '为什么还没有卡片？',
       yes_carry: '保留这个项目', yes_carry_copy: '留下它的课程，让知识可以带到下一个项目。',
       you_got_it: '答对了。', correction: '再想一想。', learned: '已学会', revisit: '以后复习', waiting_short: '等待中', now_short: '现在',
+      activity_id: '观察编号', answer_choices: '答案选项', focused_question: '一题专注练习', lesson_ready: '课程已就绪', next_lesson: '下一课', one_small_question: '一题小练习', reason: '原因',
       ui_language: '界面语言', mascot: '桌伴', mascot_copy: '让小渗在角落陪你观察学习活动。',
       local_titles: '显示本地对话标题', local_titles_copy: '默认关闭；开启后只在本机保存简短标题，可随时关闭并清除。',
       active_conversation: '当前对话：{title}',
@@ -110,6 +113,7 @@
       warmup_feedback: 'This is an instant warmup; it never changes mastery or lesson history.', why_no_card: 'Why no card?',
       yes_carry: 'Carry this project', yes_carry_copy: 'Keep its lessons and let its knowledge travel with you.',
       you_got_it: 'That’s it.', correction: 'A small correction.', learned: 'Learned', revisit: 'Revisit later', waiting_short: 'Waiting', now_short: 'Now',
+      activity_id: 'Activity ID', answer_choices: 'Answer choices', focused_question: 'One focused question', lesson_ready: 'Lesson ready', next_lesson: 'Next lesson', one_small_question: 'One small question', reason: 'Reason',
       ui_language: 'Interface language', mascot: 'Desk buddy', mascot_copy: 'Let Xiao Shen keep a quiet eye on learning activity.',
       local_titles: 'Show local conversation titles', local_titles_copy: 'Off by default; when enabled, short titles stay only on this device and clear when turned off.',
       active_conversation: 'Active conversation: {title}',
@@ -243,7 +247,7 @@
   }
 
   function studioProgress(value) {
-    const described = studioState?.describeProgress?.(value);
+    const described = studioState?.describeProgress?.(value, uiLocale());
     if (described) return described;
     if (!value || typeof value !== 'object') return null;
     const phase = value.phase === 'preparing' || value.phase === 'observed' ? value.phase : null;
@@ -255,9 +259,13 @@
       phase,
       observation_id: observationId,
       reason,
-      badge: preparing ? '备课中' : '已观察',
-      title: preparing ? '正在根据已观察到的智能体活动准备课程。' : '已观察到智能体正在进行本地开发操作。',
-      detail: preparing ? '正在根据这次观察准备正式课程。' : '这次观察已通过即时热身检查。',
+      badge: preparing ? t('preparing') : t('observed_activity'),
+      title: preparing
+        ? (uiLocale() === 'en' ? 'Preparing a lesson from observed agent activity.' : '正在根据已观察到的智能体活动准备课程。')
+        : (uiLocale() === 'en' ? 'Observed an agent performing local development work.' : '已观察到智能体正在进行本地开发操作。'),
+      detail: preparing
+        ? (uiLocale() === 'en' ? 'Preparing a full lesson from this activity.' : '正在根据这次观察准备正式课程。')
+        : (uiLocale() === 'en' ? 'This activity passed the instant-warmup check.' : '这次观察已通过即时热身检查。'),
     };
   }
 
@@ -269,7 +277,7 @@
       <p class="eyebrow">${escapeHtml(progress.badge)}</p>
       ${compact ? '' : `<h3>${escapeHtml(progress.title)}</h3>`}
       <p>${escapeHtml(progress.detail)}</p>
-      <small>观察编号：${escapeHtml(trace)} · 原因：${escapeHtml(progress.reason)}</small>
+      <small>${escapeHtml(t('activity_id'))}: ${escapeHtml(trace)} · ${escapeHtml(t('reason'))}: ${escapeHtml(progress.reason)}</small>
     </section>`;
   }
 
@@ -380,13 +388,13 @@
     if (progress?.phase === 'preparing') return t('preparing');
     if (progress?.phase === 'observed') return t('observed_activity');
     if (['preparing', 'queued'].includes(studio?.waiting?.reason)) return t('preparing');
-    if (studio?.next_ready) return uiLocale() === 'en' ? 'Next lesson ready' : '下一课已就绪';
+    if (studio?.next_ready) return t('lesson_ready');
     return t('waiting');
   }
 
   function presentationForActive() {
     const raw = activeProject()?.studio?.presentation;
-    return studioState?.describePresentation?.(raw) || {
+    return studioState?.describePresentation?.(raw, uiLocale()) || {
       epoch_id: null,
       phase: 'idle',
       stable_id: null,
@@ -403,25 +411,39 @@
     const labels = {
       observed: ['👁', t('observed_activity')],
       preparing: ['🍳', t('preparing')],
-      'card-ready': ['🎴', uiLocale() === 'en' ? 'Lesson ready' : '课程已就绪'],
+      'card-ready': ['🎴', t('lesson_ready')],
     };
     const activeIndex = order.indexOf(presentation.phase);
     activityPipeline.innerHTML = `<div class="pipeline-mascot" id="pipeline-mascot" aria-hidden="true"></div><div class="pipeline-steps">${order.map((phase, index) => {
       const state = phase === presentation.phase ? ' is-active' : activeIndex > index ? ' is-complete' : '';
       return `<span class="pipeline-step pipeline-step--${phase}${state}" data-pipeline-phase="${phase}"><b>${labels[phase][0]}</b><span>${escapeHtml(labels[phase][1])}</span></span>`;
     }).join('<i class="pipeline-arrow" aria-hidden="true">→</i>')}</div><p class="pipeline-detail" data-presentation-id="${escapeHtml(presentation.stable_id || '')}">${escapeHtml(presentation.detail || t('idle_copy'))}</p>`;
-    const mascotState = presentation.phase === 'observed'
-      ? 'observing'
-      : presentation.phase === 'preparing'
-        ? 'preparing'
-        : presentation.phase === 'card-ready'
-          ? 'celebrate'
-          : 'idle';
+    const mascotState = window.OsmosisMascot?.stateForPresentation?.(presentation.phase)
+      || (presentation.phase === 'observed' ? 'observing' : presentation.phase === 'preparing' ? 'preparing' : 'idle');
+    const celebrationEpisode = store.celebration?.project_id === store.activeProjectId
+      ? store.celebration.episode
+      : null;
     window.OsmosisMascot?.mount?.(activityPipeline.querySelector('#pipeline-mascot'), {
       enabled: store.settings.mascot_enabled !== false,
-      episode: presentation.stable_id,
+      celebrationEpisode,
       state: mascotState,
     });
+  }
+
+  function celebrateCorrectAnswer(projectId, cardId) {
+    if (typeof projectId !== 'string' || !projectId || typeof cardId !== 'string' || !cardId) return;
+    const episode = `answer:${projectId}:${cardId}`;
+    if (celebratedAnswerEpisodes.has(episode)) return;
+    celebratedAnswerEpisodes.add(episode);
+    if (celebratedAnswerEpisodes.size > 128) {
+      celebratedAnswerEpisodes.delete(celebratedAnswerEpisodes.values().next().value);
+    }
+    store.celebration = { project_id: projectId, episode };
+    window.setTimeout?.(() => {
+      if (store.celebration?.episode !== episode) return;
+      store.celebration = null;
+      if (store.activeProjectId === projectId) renderPipeline();
+    }, 1_300);
   }
 
   function conversationIds() {
@@ -656,7 +678,7 @@
     const controlState = studioState?.nextControlState?.(studio)
       || (studio.next_ready ? 'ready' : ['preparing', 'queued'].includes(studio.waiting?.reason) ? 'preparing' : 'idle');
     if (controlState === 'ready') {
-      return `<button class="next-lesson" type="button" data-next-lesson>${warmup || uiLocale() !== 'en' ? '下一课' : 'Next lesson'} <span aria-hidden="true">→</span></button>`;
+      return `<button class="next-lesson" type="button" data-next-lesson>${escapeHtml(t('next_lesson'))} <span aria-hidden="true">→</span></button>`;
     }
     const waiting = studio.waiting;
     const hasWork = controlState === 'preparing';
@@ -683,24 +705,24 @@
           <p>${escapeHtml(t('warmup_feedback'))}</p>
         </section>`
       : '';
-    const warmupLabels = ['甲', '乙', '丙'];
+    const warmupLabels = uiLocale() === 'en' ? ['A', 'B', 'C'] : ['甲', '乙', '丙'];
     const choices = Array.isArray(card.options) ? card.options.map((option, index) => {
       const selected = selectedIndex === index;
       const resultClass = selected
         ? answered ? (card.state.correct ? ' selected correct' : ' selected incorrect') : ' pressed'
         : '';
       return `<button type="button" class="answer-option${resultClass}" data-answer-card="${escapeHtml(card.warmup_id)}" data-answer-index="${index}" aria-pressed="${selected}" ${answered || pending ? 'disabled' : ''}>
-        <span class="answer-letter">${warmupLabels[index] || '选项'}</span><span>${escapeHtml(option)}</span>
+        <span class="answer-letter">${warmupLabels[index] || (uiLocale() === 'en' ? 'Option' : '选项')}</span><span>${escapeHtml(option)}</span>
       </button>`;
     }).join('') : '';
     return `<article class="lesson-card lesson-card--warmup" aria-label="${escapeHtml(t('warmup'))}">
-      <div class="card-topline"><p class="card-kicker">${escapeHtml(t('warmup'))}</p><span class="now-status">${uiLocale() === 'en' ? 'One small question' : '一题小练习'}</span></div>
+      <div class="card-topline"><p class="card-kicker">${escapeHtml(t('warmup'))}</p><span class="now-status">${escapeHtml(t('one_small_question'))}</span></div>
       <p class="card-concept">${escapeHtml(card.title || card.concept_name || (uiLocale() === 'en' ? 'A concept you just used' : '刚刚用到的概念'))}</p>
       <p class="source-line source-line--observed-activity"><span class="provenance-label provenance-label--observed-activity">${escapeHtml(t('observed_activity'))}</span><span class="source-copy">${escapeHtml(t('warmup_copy'))}</span></p>
       ${progressMarkup(project.studio?.progress, { compact: true })}
       <p class="lesson-copy">${escapeHtml(card.lesson || '')}</p>
       <h3>${escapeHtml(card.question || '')}</h3>
-      <div class="answers" aria-label="答案选项">${choices}</div>
+      <div class="answers" aria-label="${escapeHtml(t('answer_choices'))}">${choices}</div>
       ${feedback}
       ${nextControl(project, card, { warmup: true })}
     </article>`;
@@ -735,13 +757,13 @@
     }).join('') : '';
     const locale = activation?.lesson_locale === 'zh-CN' ? t('stage2') : '';
     return `<article class="lesson-card" aria-label="${escapeHtml(t('current_lesson'))}">
-      <div class="card-topline"><p class="card-kicker">${escapeHtml(t('now'))}</p><span class="now-status">${uiLocale() === 'en' ? 'one question' : '一题专注练习'}</span></div>
+      <div class="card-topline"><p class="card-kicker">${escapeHtml(t('now'))}</p><span class="now-status">${escapeHtml(t('focused_question'))}</span></div>
       <p class="card-concept">${escapeHtml(card.concept_name)}</p>
       <p class="source-line source-line--${sourceKind(card.source)}">${sourceMarkup(card.source)}</p>
       ${progressMarkup(project.studio?.progress, { compact: true })}
       <p class="lesson-copy">${escapeHtml(card.lesson)}</p>
       <h3>${escapeHtml(card.question)}</h3>
-      <div class="answers" aria-label="${escapeHtml(uiLocale() === 'en' ? 'Answer choices' : '答案选项')}">${choices}</div>
+      <div class="answers" aria-label="${escapeHtml(t('answer_choices'))}">${choices}</div>
       ${feedback}
       ${nextControl(project, card)}
       ${locale ? `<p class="locale-note">${escapeHtml(locale)}</p>` : ''}
@@ -1015,6 +1037,7 @@
         store.strengths[answered.concept_id] = { ...(store.strengths[answered.concept_id] || {}), name: answered.concept_name, strength: result.strength };
       }
       store.pendingAnswers.delete(projectId);
+      if (result.correct === true) celebrateCorrectAnswer(projectId, cardId);
       render();
     } catch {
       store.pendingAnswers.delete(projectId);
@@ -1371,6 +1394,21 @@
     const route = studioState?.parseStudioRoute?.(window.location.hash);
     if (route?.projectId && store.projects.has(route.projectId)) void selectProject(route.projectId, route.view, { writeHash: false });
   });
+
+  // This flag is only used by Node's DOM-free renderer regression tests. The
+  // production page never enables it, and the hooks expose no network or
+  // persistence surface beyond functions already running in this closure.
+  if (window.__OSMOSIS_APP_TEST_HOOKS__ === true) {
+    window.__OsmosisAppTest = Object.freeze({
+      applySettings,
+      celebrateCorrectAnswer,
+      progressMarkup,
+      renderPipeline,
+      renderWarmupNow,
+      store,
+      submitAnswer,
+    });
+  }
 
   render();
   connectEvents();

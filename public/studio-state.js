@@ -155,9 +155,18 @@
     };
   }
 
-  function describePresentation(value) {
+  function normalizedUiLocale(value) {
+    return value === 'en' ? 'en' : 'zh-CN';
+  }
+
+  function describePresentation(value, locale = 'zh-CN') {
     const presentation = normalizePresentation(value);
-    const copy = {
+    const copy = normalizedUiLocale(locale) === 'en' ? {
+      observed: { label: 'Observed', detail: 'A real local development activity was captured.' },
+      preparing: { label: 'Preparing', detail: 'Preparing a lesson from this activity.' },
+      'card-ready': { label: 'Lesson ready', detail: 'A lesson is ready when you want to pick it up.' },
+      idle: { label: 'Waiting', detail: 'Keep working; the next useful activity will appear here.' },
+    } : {
       observed: { label: '已观察', detail: '已捕捉到一条真实的本地开发活动。' },
       preparing: { label: '备课中', detail: '正在根据这条活动准备课程。' },
       'card-ready': { label: '课程已就绪', detail: '一张课程已准备好，等你自然地接上。' },
@@ -166,33 +175,42 @@
     return { ...presentation, ...copy[presentation.phase] };
   }
 
-  function progressReasonCopy(reason) {
-    const copy = {
+  function progressReasonCopy(reason, locale = 'zh-CN') {
+    const copy = normalizedUiLocale(locale) === 'en' ? {
+      'warmup-eligible': 'This activity passed the instant-warmup check.',
+      'formal-lesson': 'Preparing a full lesson from this activity.',
+      'generation-queue-full': 'This activity is recorded and waiting for a lesson slot.',
+      'generation-queued': 'This activity is recorded and waiting for a lesson slot.',
+      'rate-limited': 'This activity is recorded and waiting for the right lesson moment.',
+    } : {
       'warmup-eligible': '这次观察已通过即时热身检查。',
       'formal-lesson': '正在根据这次观察准备正式课程。',
       'generation-queue-full': '这次观察已记录，正在等待可用的备课位置。',
       'generation-queued': '这次观察已记录，正在等待可用的备课位置。',
       'rate-limited': '这次观察已记录，正在等待合适的备课时机。',
     };
-    return copy[reason] || '这次观察已记录，正在等待下一步。';
+    return copy[reason] || (normalizedUiLocale(locale) === 'en'
+      ? 'This activity is recorded and waiting for the next step.'
+      : '这次观察已记录，正在等待下一步。');
   }
 
   /**
-   * Pure presentation data keeps the functional Chinese progress copy shared
-   * by the connection indicator and the Studio wall, while tests can verify
-   * it without a browser DOM.
+   * Pure presentation data keeps locale-specific progress copy shared by the
+   * connection indicator and the Studio wall, while tests can verify it
+   * without a browser DOM.
    */
-  function describeProgress(value) {
+  function describeProgress(value, locale = 'zh-CN') {
     const progress = normalizeProgress(value);
     if (!progress) return null;
     const preparing = progress.phase === 'preparing';
+    const english = normalizedUiLocale(locale) === 'en';
     return {
       ...progress,
-      badge: preparing ? '备课中' : '已观察',
+      badge: preparing ? (english ? 'Preparing' : '备课中') : (english ? 'Observed' : '已观察'),
       title: preparing
-        ? '正在根据已观察到的智能体活动准备课程。'
-        : '已观察到智能体正在进行本地开发操作。',
-      detail: progressReasonCopy(progress.reason),
+        ? (english ? 'Preparing a lesson from observed agent activity.' : '正在根据已观察到的智能体活动准备课程。')
+        : (english ? 'Observed an agent performing local development work.' : '已观察到智能体正在进行本地开发操作。'),
+      detail: progressReasonCopy(progress.reason, locale),
     };
   }
 

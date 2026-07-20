@@ -7,7 +7,7 @@ const path = require('node:path');
 const test = require('node:test');
 const zlib = require('node:zlib');
 
-const { CELEBRATE_MS, baseState, canLoadThree, mount, stop } = require('../public/mascot');
+const { CELEBRATE_MS, baseState, canLoadThree, mount, stateForPresentation, stop } = require('../public/mascot');
 const { createHttpHandler } = require('../lib/http');
 
 function fakeContainer() {
@@ -37,6 +37,27 @@ test('mascot celebration is a bounded rendering window and resumes the true stat
   assert.equal(baseState({ requestedState: 'celebrate', celebrateUntil: now + CELEBRATE_MS }, now), 'celebrate');
   assert.equal(baseState({ requestedState: 'celebrate', celebrateUntil: now - 1 }, now), 'idle');
   assert.equal(baseState({ requestedState: 'observing', celebrateUntil: 0 }, now), 'observing');
+});
+
+test('mascot celebrates only a deduped correct-answer episode, never a ready card', () => {
+  stop();
+  assert.equal(stateForPresentation('card-ready'), 'idle');
+  const container = fakeContainer();
+  const windowRef = { clearTimeout() {}, matchMedia: () => ({ matches: true }), setTimeout: () => 1 };
+  const documentRef = { hidden: true, createElement() { throw new Error('no WebGL in this test'); } };
+  const idle = mount(container, { documentRef, enabled: true, state: stateForPresentation('card-ready'), windowRef });
+  assert.equal(baseState(idle, Date.now()), 'idle');
+
+  const celebrated = mount(container, {
+    celebrationEpisode: 'answer:project-a:card-a', documentRef, enabled: true, state: 'idle', windowRef,
+  });
+  const deadline = celebrated.celebrateUntil;
+  assert.equal(baseState(celebrated, Date.now()), 'celebrate');
+  const duplicate = mount(container, {
+    celebrationEpisode: 'answer:project-a:card-a', documentRef, enabled: true, state: 'idle', windowRef,
+  });
+  assert.equal(duplicate.celebrateUntil, deadline, 'the same answer never restarts the one-shot celebration');
+  stop();
 });
 
 test('self-hosted three stays below the 200 KiB gzip budget and carries its license', () => {

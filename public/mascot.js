@@ -32,21 +32,30 @@
     return ['idle', 'observing', 'preparing', 'celebrate'].includes(value) ? value : 'idle';
   }
 
+  function stateForPresentation(phase) {
+    if (phase === 'observed') return 'observing';
+    if (phase === 'preparing') return 'preparing';
+    // A ready card is useful, not an achievement. Celebration is reserved for
+    // a learner's correct answer event below.
+    return 'idle';
+  }
+
   function fallback(container, state) {
     container.innerHTML = `<div class="mascot-fallback" data-state="${normalizedState(state)}" role="img" aria-label="Osmosis desk buddy"><span class="mascot-fallback-body"></span></div>`;
   }
 
   function baseState(instance, now) {
-    if (instance.requestedState === 'celebrate') {
-      return now < instance.celebrateUntil ? 'celebrate' : 'idle';
-    }
+    if (now < instance.celebrateUntil) return 'celebrate';
+    if (instance.requestedState === 'celebrate') return 'idle';
     return instance.requestedState;
   }
 
   function stop(instance) {
     if (!instance) return;
     if (instance.frame) instance.windowRef.cancelAnimationFrame?.(instance.frame);
+    if (instance.celebrationTimer) instance.windowRef.clearTimeout?.(instance.celebrationTimer);
     instance.frame = null;
+    instance.celebrationTimer = null;
     instance.renderer?.dispose?.();
     instance.renderer?.domElement?.remove?.();
     instance.cleanup?.();
@@ -124,11 +133,18 @@
 
   function startCelebration(instance, episode) {
     if (episode && episode === lastCelebrationEpisode) {
-      instance.celebrateUntil = 0;
-      return;
+      return false;
     }
     if (episode) lastCelebrationEpisode = episode;
     instance.celebrateUntil = Date.now() + CELEBRATE_MS;
+    if (instance.celebrationTimer) instance.windowRef.clearTimeout?.(instance.celebrationTimer);
+    instance.celebrationTimer = instance.windowRef.setTimeout?.(() => {
+      instance.celebrationTimer = null;
+      if (active === instance && !instance.renderer) {
+        fallback(instance.container, baseState(instance, Date.now()));
+      }
+    }, CELEBRATE_MS);
+    return true;
   }
 
   function fallbackFromMotion(instance) {
@@ -140,35 +156,48 @@
     fallback(instance.container, baseState(instance, Date.now()));
   }
 
-  function mount(container, { enabled = true, state = 'idle', episode = null, documentRef = globalThis.document, windowRef = globalThis } = {}) {
+  function mount(container, {
+    enabled = true,
+    state = 'idle',
+    // `episode` remains as a narrow compatibility alias for the original
+    // optional API. New callers use the truth-named celebrationEpisode.
+    episode = null,
+    celebrationEpisode = null,
+    documentRef = globalThis.document,
+    windowRef = globalThis,
+  } = {}) {
     if (!container) return null;
     const nextState = normalizedState(state);
+    const requestedState = nextState === 'celebrate' ? 'idle' : nextState;
+    const requestedEpisode = celebrationEpisode || (nextState === 'celebrate' ? episode : null);
     if (active?.container === container) {
-      if (active.requestedState !== nextState || (nextState === 'celebrate' && active.episode !== episode)) {
-        active.requestedState = nextState;
-        active.episode = episode;
-        if (nextState === 'celebrate') startCelebration(active, episode);
+      active.requestedState = requestedState;
+      if (requestedEpisode && active.episode !== requestedEpisode) {
+        active.episode = requestedEpisode;
+        startCelebration(active, requestedEpisode);
       }
+      if (!active.renderer) fallback(container, baseState(active, Date.now()));
       return active;
     }
     stop(active);
     const instance = {
       celebrateUntil: 0,
+      celebrationTimer: null,
       container,
       documentRef,
-      episode,
+      episode: requestedEpisode,
       frame: null,
       renderer: null,
-      requestedState: nextState,
+      requestedState,
       windowRef,
     };
-    if (nextState === 'celebrate') startCelebration(instance, episode);
+    if (requestedEpisode) startCelebration(instance, requestedEpisode);
     active = instance;
     if (enabled !== true) {
       container.replaceChildren();
       return instance;
     }
-    fallback(container, nextState);
+    fallback(container, baseState(instance, Date.now()));
     if (!canLoadThree({ documentRef, windowRef })) return instance;
     const onVisibility = () => {
       if (documentRef.hidden || motionReduced(windowRef)) {
@@ -188,5 +217,5 @@
     return instance;
   }
 
-  return { CELEBRATE_MS, baseState, canLoadThree, mount, normalizedState, stop: () => stop(active) };
+  return { CELEBRATE_MS, baseState, canLoadThree, mount, normalizedState, stateForPresentation, stop: () => stop(active) };
 });
