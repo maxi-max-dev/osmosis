@@ -15,6 +15,8 @@ const {
   CAPTURE_EXPERIMENTAL_AMBIENT,
   GLOBAL_LEARNING_PAUSED,
   LESSON_LOCALE_SIMPLIFIED_CHINESE,
+  UI_LOCALE_ENGLISH,
+  UI_LOCALE_SIMPLIFIED_CHINESE,
   createSettingsStore,
 } = require('../lib/settings-store');
 
@@ -76,7 +78,10 @@ test('Learning Studio settings persist all three controls and keep auto-advance 
     lesson_locale: 'en',
     pending_activation_counts: {},
     projects: {},
-    version: 1,
+    version: 2,
+    ui_locale: UI_LOCALE_SIMPLIFIED_CHINESE,
+    mascot_enabled: true,
+    local_conversation_titles: false,
   });
   assert.deepEqual(store.activationFor(projectId), {
     auto_advance: false,
@@ -89,6 +94,9 @@ test('Learning Studio settings persist all three controls and keep auto-advance 
 
   await store.setGlobalLearning(GLOBAL_LEARNING_PAUSED);
   await store.setLessonLocale(LESSON_LOCALE_SIMPLIFIED_CHINESE);
+  await store.setUiLocale(UI_LOCALE_ENGLISH);
+  await store.setMascotEnabled(false);
+  await store.setLocalConversationTitles(true);
   await store.setProject(projectId, {
     auto_advance: true,
     capture_mode: CAPTURE_EXPERIMENTAL_AMBIENT,
@@ -109,6 +117,31 @@ test('Learning Studio settings persist all three controls and keep auto-advance 
   const persisted = JSON.parse(await fs.readFile(settingsPath, 'utf8'));
   assert.equal(persisted.projects[projectId].auto_advance, true);
   assert.equal(persisted.lesson_locale, LESSON_LOCALE_SIMPLIFIED_CHINESE);
+  assert.equal(persisted.ui_locale, UI_LOCALE_ENGLISH, 'UI language remains independent from card language');
+  assert.equal(persisted.mascot_enabled, false);
+  assert.equal(persisted.local_conversation_titles, true);
+});
+
+test('a v1 settings file copies its former locale to ui_locale once, then the two choices detach', async (t) => {
+  const directory = await temporaryDirectory(t);
+  const settingsPath = path.join(directory, 'profile', 'settings.json');
+  await fs.mkdir(path.dirname(settingsPath), { recursive: true });
+  await fs.writeFile(settingsPath, JSON.stringify({
+    version: 1,
+    global_learning: 'on',
+    lesson_locale: 'zh-CN',
+    projects: {},
+    pending_activation: {},
+  }));
+  const store = createSettingsStore({ settingsPath });
+  const loaded = await store.load();
+  assert.equal(loaded.ui_locale, UI_LOCALE_SIMPLIFIED_CHINESE);
+  await store.setUiLocale(UI_LOCALE_ENGLISH);
+  await store.setLessonLocale('en');
+  const restarted = createSettingsStore({ settingsPath });
+  const detached = await restarted.load();
+  assert.equal(detached.ui_locale, UI_LOCALE_ENGLISH);
+  assert.equal(detached.lesson_locale, 'en');
 });
 
 test('unknown startup reports wait for activation, then Carry creates state and releases them', async (t) => {

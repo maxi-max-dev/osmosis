@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const { EMPTY_STATE_COPY, INLINE_CARD_URI, renderInlineCard } = require('../lib/inline-card');
-const { createMcpServer } = require('../lib/mcp');
+const { createMcpServer, validateReport } = require('../lib/mcp');
 
 const ANSWER_URL = 'http://127.0.0.1:4321/answer';
 
@@ -49,7 +49,7 @@ function lessonCard({
   };
 }
 
-function createHarness(state) {
+function createHarness(state, { uiLocale = 'zh-CN' } = {}) {
   const responses = [];
   const reports = [];
   const mcp = createMcpServer({
@@ -57,7 +57,7 @@ function createHarness(state) {
       reports.push(report);
     },
     getInlineCardHtml() {
-      return renderInlineCard({ state, answerUrl: ANSWER_URL });
+      return renderInlineCard({ state, answerUrl: ANSWER_URL, uiLocale });
     },
     getInlineAnswerOrigin() {
       return ANSWER_URL;
@@ -116,6 +116,17 @@ test('MCP Apps declares the inline resource on report tools and calls', () => {
   assert.deepEqual(harness.reports, [reportArguments()]);
 });
 
+test('the frozen MCP report schema rejects any conversation field, so direct reports never get a badge', () => {
+  const result = validateReport({ ...reportArguments(), conversation_id: 'a'.repeat(32) });
+  assert.match(result.error, /schema/);
+  const card = lessonCard({
+    cardId: 'direct-card', conceptId: 'mcp', conceptName: 'MCP', source: reportArguments(),
+    lesson: 'Lesson.', question: 'Question?', options: ['A', 'B', 'C'],
+  });
+  const html = renderInlineCard({ state: { cards: [card], strengths: {}, tree: { meta: {}, nodes: [] } } });
+  assert.doesNotMatch(html, /conversation_id|conversation-badge/);
+});
+
 test('resources/read renders the newest unanswered lesson and local CSP allowance', () => {
   const older = lessonCard({
     cardId: 'older-card',
@@ -162,17 +173,17 @@ test('resources/read renders the newest unanswered lesson and local CSP allowanc
   assert.equal(content.mimeType, 'text/html');
   assert.equal(content._meta.ui.csp.connectDomains[0], 'http://127.0.0.1:4321');
   assert.deepEqual(content._meta.ui.csp.resourceDomains, []);
-  assert.match(content.text, /Local Codex change/);
+  assert.match(content.text, /本地 Codex 改动/);
   assert.doesNotMatch(content.text, /Latest local change/);
-  assert.match(content.text, /Osmosis observed a local Codex change/);
+  assert.match(content.text, /观察到的改动/);
   assert.doesNotMatch(content.text, /Latest source came from local Codex activity/);
-  assert.match(content.text, /Observed change/);
-  assert.doesNotMatch(content.text, /Reported by agent/);
+  assert.match(content.text, /观察到的改动/);
+  assert.doesNotMatch(content.text, /智能体汇报/);
   assert.match(content.text, /A latest lesson explains the exact technology now in use/);
   assert.match(content.text, /Which lesson should Osmosis show/);
   assert.match(content.text, /The latest unanswered lesson/);
-  assert.match(content.text, /Tree lit<\/span>1 \/ 2/);
-  assert.match(content.text, /Queue<\/span>2/);
+  assert.match(content.text, /已点亮<\/span>1 \/ 2/);
+  assert.match(content.text, /队列<\/span>2/);
   assert.match(content.text, /http:\/\/127\.0\.0\.1:4321\/answer/);
   assert.doesNotMatch(content.text, /Older source should not be shown/);
 });
@@ -196,10 +207,10 @@ test('inline cards default missing provenance to the agent report label', () => 
     },
   });
 
-  assert.match(html, /Reported by agent/);
+  assert.match(html, /智能体汇报/);
   assert.match(html, /source-label--agent/);
-  assert.doesNotMatch(html, /Observed change/);
-  assert.doesNotMatch(html, /Observed activity/);
+  assert.doesNotMatch(html, /观察到的改动/);
+  assert.doesNotMatch(html, /观察到的活动/);
 });
 
 test('inline cards reserve observed change for patches and use observed activity otherwise', () => {
@@ -242,13 +253,13 @@ test('inline cards reserve observed change for patches and use observed activity
     },
   });
 
-  assert.match(activityHtml, /Observed activity/);
+  assert.match(activityHtml, /观察到的活动/);
   assert.match(activityHtml, /source-label--observed-activity/);
-  assert.doesNotMatch(activityHtml, /Observed change/);
+  assert.doesNotMatch(activityHtml, /观察到的改动/);
   assert.doesNotMatch(activityHtml, /untrusted-rollout-identifier\.js/);
-  assert.match(legacyHtml, /Observed activity/);
+  assert.match(legacyHtml, /观察到的活动/);
   assert.match(legacyHtml, /source-label--observed-activity/);
-  assert.doesNotMatch(legacyHtml, /Observed change/);
+  assert.doesNotMatch(legacyHtml, /观察到的改动/);
 });
 
 test('resources/read returns a calm inline empty state when no lesson is waiting', () => {
@@ -263,9 +274,22 @@ test('resources/read returns a calm inline empty state when no lesson is waiting
 
   assert.equal(content.mimeType, 'text/html');
   assert.match(content.text, new RegExp(EMPTY_STATE_COPY));
-  assert.match(content.text, /CARRIED OVER/);
+  assert.match(content.text, /已带入/);
   assert.match(content.text, /data-osmosis-inline-card="pending"/);
   assert.match(content.text, /http:\/\/127\.0\.0\.1:4321\/inline-card/);
-  assert.match(content.text, /Tree lit<\/span>0 \/ 1/);
-  assert.match(content.text, /Queue<\/span>0/);
+  assert.match(content.text, /已点亮<\/span>0 \/ 1/);
+  assert.match(content.text, /队列<\/span>0/);
+});
+
+test('inline cards keep every static phrase and lang attribute in the selected UI locale', () => {
+  const state = { cards: [], strengths: {}, tree: { meta: {}, nodes: [] } };
+  const chinese = renderInlineCard({ state });
+  const english = renderInlineCard({ state, uiLocale: 'en' });
+  assert.match(chinese, /<html lang="zh-CN">/);
+  assert.match(chinese, /现在没有等待中的课程/);
+  assert.match(chinese, /Osmosis · 对话内课程/);
+  assert.match(english, /<html lang="en">/);
+  assert.match(english, /No lesson is waiting right now/);
+  assert.match(english, /Osmosis · inline/);
+  assert.doesNotMatch(english, /现在没有等待中的课程/);
 });

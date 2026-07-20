@@ -52,7 +52,7 @@ test('an unregistered relay returns a static reconnecting card without a local o
 
   const html = await resolver();
   assert.match(html, /data-osmosis-inline-card="pending"/);
-  assert.match(html, /Osmosis is listening/);
+  assert.match(html, /Osmosis 正在留意/);
   assert.match(html, /http:\/\/127\.0\.0\.1:4321\/inline-card/);
   assert.deepEqual(proxyCalls, []);
   assert.deepEqual(localCalls, []);

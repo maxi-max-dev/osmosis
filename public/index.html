@@ -1,69 +1,72 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#0a1020" />
-    <title>Osmosis — Learning Studio</title>
+    <meta name="theme-color" content="#fff7ea" />
+    <title>Osmosis｜学习工作台</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <main class="studio-shell">
       <aside class="trail-panel" aria-labelledby="trail-title">
-        <a class="wordmark" href="#" aria-label="Osmosis Learning Studio">
+        <a class="wordmark" href="#" aria-label="Osmosis 学习工作台">
           <span class="wordmark-mark" aria-hidden="true">◌</span>
           <span>Osmosis</span>
         </a>
         <div class="trail-heading">
-          <p class="eyebrow">Learning Studio</p>
-          <h1 id="trail-title">Your learning trail</h1>
-          <p class="trail-intro">A quiet record of the ideas your work has surfaced — not a course you have to keep up with.</p>
+          <p class="eyebrow" data-i18n="studio_label">学习工作台</p>
+          <h1 id="trail-title" data-i18n="trail_title">你的学习轨迹</h1>
+          <p class="trail-intro" data-i18n="trail_intro">工作里浮现过的想法，会安静地留在这里；这不是一门需要赶进度的课。</p>
         </div>
         <ol class="learning-trail" id="learning-trail" aria-live="polite"></ol>
         <div class="trail-footer">
-          <button class="text-button" id="review-button" type="button">Review past lessons <span aria-hidden="true">→</span></button>
-          <p id="trail-note">Your next useful signal will become a lesson here.</p>
+          <button class="text-button" id="review-button" type="button"><span data-i18n="review_lessons">复习学过的课</span> <span aria-hidden="true">→</span></button>
+          <p id="trail-note">下一条有用活动会在这里变成课程。</p>
         </div>
       </aside>
 
       <section class="studio-panel" aria-labelledby="studio-title">
         <header class="studio-header">
           <div>
-            <p class="eyebrow">While your agent works</p>
-            <h2 id="studio-title">One useful thing at a time.</h2>
+            <p class="eyebrow" data-i18n="while_agent_works">趁智能体在工作</p>
+            <h2 id="studio-title" data-i18n="studio_title">一次只学一件有用的事。</h2>
           </div>
           <div class="header-actions">
-            <span class="connection" id="connection">Connecting…</span>
-            <button class="settings-button" id="settings-button" type="button" aria-haspopup="dialog" aria-controls="settings-dialog">Settings</button>
+            <span class="connection" id="connection">正在连接…</span>
+            <button class="settings-button" id="settings-button" type="button" aria-haspopup="dialog" aria-controls="settings-dialog" data-i18n="settings">设置</button>
           </div>
         </header>
 
-        <nav class="project-rail" aria-label="Project channels">
-          <div class="project-tabs" id="project-tabs" role="tablist" aria-label="Active projects"></div>
+        <section class="activity-pipeline" id="activity-pipeline" aria-label="实时学习活动" aria-live="polite"></section>
+        <p class="active-conversation" id="active-conversation" hidden></p>
+
+        <nav class="project-rail" aria-label="项目频道" data-i18n-aria="project_channels">
+          <div class="project-tabs" id="project-tabs" role="tablist" aria-label="活跃项目"></div>
           <details class="archived-projects" id="archived-projects" hidden>
-            <summary>Archived projects <span class="archive-hint">kept, never deleted</span></summary>
-            <div class="project-tabs project-tabs--archived" id="archived-tabs" role="tablist" aria-label="Archived projects"></div>
+            <summary><span data-i18n="archived_projects">已归档项目</span> <span class="archive-hint" data-i18n="archive_hint">保留，绝不删除</span></summary>
+            <div class="project-tabs project-tabs--archived" id="archived-tabs" role="tablist" aria-label="已归档项目" data-i18n-aria="archived_tabs"></div>
           </details>
         </nav>
 
         <section class="activation-inbox" id="activation-inbox" aria-live="polite" hidden></section>
 
         <div class="studio-nav" id="studio-nav" hidden>
-          <button class="studio-nav-link" type="button" data-studio-view="now">Now</button>
-          <button class="studio-nav-link" type="button" data-studio-view="review">Past lessons</button>
+          <button class="studio-nav-link" type="button" data-studio-view="now" data-i18n="now">现在</button>
+          <button class="studio-nav-link" type="button" data-studio-view="review" data-i18n="past_lessons">学过的课</button>
         </div>
         <div class="toast" id="toast" role="status" aria-live="polite"></div>
         <section class="studio-stage" id="studio-stage" aria-live="polite"></section>
       </section>
     </main>
 
-    <aside class="activity-drawer" id="activity-drawer" aria-label="Project activity" hidden>
+    <aside class="activity-drawer" id="activity-drawer" aria-label="项目活动" data-i18n-aria="project_activity_drawer" hidden>
       <div class="activity-drawer-header">
         <div>
-          <p class="eyebrow">Why no card?</p>
-          <h2 id="activity-title">Project activity</h2>
+          <p class="eyebrow" data-i18n="why_no_card">为什么还没有卡片？</p>
+          <h2 id="activity-title">项目活动</h2>
         </div>
-        <button class="activity-close" id="activity-close" type="button" aria-label="Close activity">×</button>
+        <button class="activity-close" id="activity-close" type="button" aria-label="关闭活动" data-i18n-aria="close_activity">×</button>
       </div>
       <ol class="activity-list" id="activity-list"></ol>
     </aside>
@@ -72,18 +75,20 @@
       <form method="dialog" class="settings-sheet" id="settings-form">
         <header class="settings-header">
           <div>
-            <p class="eyebrow">Learning preferences</p>
-            <h2 id="settings-title">Make Osmosis yours</h2>
+            <p class="eyebrow" data-i18n="preferences">学习偏好</p>
+            <h2 id="settings-title" data-i18n="settings_title">把 Osmosis 调成你的节奏</h2>
           </div>
-          <button class="activity-close" type="submit" value="cancel" aria-label="Close settings">×</button>
+          <button class="activity-close" type="submit" value="cancel" aria-label="关闭设置" data-i18n-aria="close_settings">×</button>
         </header>
         <div id="settings-content"></div>
       </form>
     </dialog>
 
-    <footer class="mode-footer" id="mode-footer">live · local</footer>
+    <footer class="mode-footer" id="mode-footer">本地 · 实时</footer>
     <script src="/project-state.js"></script>
+    <script src="/project-labels.js"></script>
     <script src="/studio-state.js"></script>
+    <script src="/mascot.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>

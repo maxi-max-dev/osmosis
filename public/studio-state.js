@@ -130,6 +130,42 @@
     };
   }
 
+  function normalizePresentation(value) {
+    const presentation = objectOrNull(value);
+    if (!presentation || presentation.phase === 'idle') {
+      return { epoch_id: null, phase: 'idle', reason: 'idle', stable_id: null };
+    }
+    const phase = ['observed', 'preparing', 'card-ready'].includes(presentation.phase)
+      ? presentation.phase
+      : 'idle';
+    const epochId = typeof presentation.epoch_id === 'string' ? presentation.epoch_id.trim().slice(0, 160) : '';
+    const stableId = typeof presentation.stable_id === 'string' ? presentation.stable_id.trim().slice(0, 160) : '';
+    const reason = typeof presentation.reason === 'string' ? presentation.reason.trim().slice(0, 256) : '';
+    if (phase === 'idle' || !epochId || !stableId || !reason) {
+      return { epoch_id: null, phase: 'idle', reason: 'idle', stable_id: null };
+    }
+    return {
+      epoch_id: epochId,
+      phase,
+      reason,
+      stable_id: stableId,
+      ...(typeof presentation.updated_at === 'string' && presentation.updated_at.trim()
+        ? { updated_at: presentation.updated_at.trim().slice(0, 64) }
+        : {}),
+    };
+  }
+
+  function describePresentation(value) {
+    const presentation = normalizePresentation(value);
+    const copy = {
+      observed: { label: '已观察', detail: '已捕捉到一条真实的本地开发活动。' },
+      preparing: { label: '备课中', detail: '正在根据这条活动准备课程。' },
+      'card-ready': { label: '课程已就绪', detail: '一张课程已准备好，等你自然地接上。' },
+      idle: { label: '等待观察', detail: '继续工作；下一条有用活动会出现在这里。' },
+    };
+    return { ...presentation, ...copy[presentation.phase] };
+  }
+
   function progressReasonCopy(reason) {
     const copy = {
       'warmup-eligible': '这次观察已通过即时热身检查。',
@@ -209,6 +245,7 @@
     const hasCurrent = Boolean(studio && hasOwn(studio, 'current'));
     const hasWarmup = Boolean(studio && hasOwn(studio, 'current_warmup'));
     const hasProgress = Boolean(studio && hasOwn(studio, 'progress'));
+    const hasPresentation = Boolean(studio && hasOwn(studio, 'presentation'));
     const rawCurrent = hasCurrent ? objectOrNull(studio.current) : null;
     const previousNow = normalizeNow(previous?.now) || { kind: null, card_ref: null };
     const previousWarmup = normalizeWarmup(previous?.current_warmup);
@@ -258,6 +295,11 @@
       : previous && hasOwn(previous, 'progress')
         ? normalizeProgress(previous.progress)
         : null;
+    const presentation = studio && hasPresentation
+      ? normalizePresentation(studio.presentation)
+      : previous && hasOwn(previous, 'presentation')
+        ? normalizePresentation(previous.presentation)
+        : normalizePresentation(null);
     const interactionToken = Number.isInteger(studio?.interaction_token)
       ? studio.interaction_token
       : Number.isInteger(previous?.interaction_token)
@@ -268,6 +310,7 @@
       current,
       current_warmup: currentWarmup,
       next_ready: nextReady,
+      presentation,
       progress,
       waiting,
       ...(interactionToken === null ? {} : { interaction_token: interactionToken }),
@@ -434,6 +477,8 @@
     noteStudioInteraction,
     nextControlState,
     normalizeProgress,
+    normalizePresentation,
+    describePresentation,
     normalizeStudioContract,
     parseStudioRoute,
     selectStudioRouteFromUser,

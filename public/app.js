@@ -2,6 +2,7 @@
   'use strict';
 
   const projectState = window.OsmosisProjectState;
+  const projectLabels = window.OsmosisProjectLabels;
   const studioState = window.OsmosisStudioState;
 
   const store = {
@@ -14,9 +15,10 @@
     pendingAnswers: new Map(),
     projects: new Map(),
     readyProjectIds: new Set(),
-    settings: { global_learning: 'on', lesson_locale: 'en', projects: {} },
+    settings: { global_learning: 'on', lesson_locale: 'en', ui_locale: 'zh-CN', mascot_enabled: true, local_conversation_titles: false, projects: {} },
     strengths: {},
     studioView: 'now',
+    conversationTitles: new Map(),
   };
 
   let provider = 'none';
@@ -39,6 +41,103 @@
   const activityList = document.querySelector('#activity-list');
   const settingsDialog = document.querySelector('#settings-dialog');
   const settingsContent = document.querySelector('#settings-content');
+  const activityPipeline = document.querySelector('#activity-pipeline');
+  const activeConversation = document.querySelector('#active-conversation');
+
+  const copy = {
+    'zh-CN': {
+      activity: '活动', agent: '智能体汇报', agent_copy: '智能体汇报了一个里程碑。',
+      archive: '归档', archive_error: '暂时无法归档这个项目。', archive_hint: '保留，绝不删除', archived_projects: '已归档项目',
+      auto_advance: '自动进入下一课', auto_advance_copy: '仅在下一课就绪且短暂停顿后自动进入。',
+      capture: '捕捉方式', carry: '让学习随项目保留', carried_copy: '已保留的项目拥有私密的学习轨迹。',
+      change: '观察到的改动', change_copy: 'Osmosis 观察到了本地 Codex 改动。',
+      choose_project: '打开一个带有 Osmosis 的项目，即可开始。', close: '关闭',
+      connection_error: '正在重新连接…', current_lesson: '当前课程', decide_later: '稍后决定',
+      dont_carry: '不保留这个项目', dont_carry_copy: '不把它纳入 Osmosis，之后仍可修改。',
+      enable_project: '要为 {project} 启用 Osmosis 吗？',
+      experimental_ambient: '+ 实验性 Ambient Watch', experimental_ambient_copy: '机器级开关开启时，可能观察本地 Codex 活动。',
+      first_activation: '首次启用', global_learning: '全局学习', idle_copy: '继续工作吧；看到有用活动后，Osmosis 会准备下一课。',
+      language: '课程语言', learning_off: '已暂停', learning_on: '已开启', learning_paused: '学习已暂停',
+      no_activity: '还没有持久化活动。汇报与生成结果会显示在这里。', no_new_lesson: '暂时没有新的相关课程',
+      now: '现在', observed_activity: '观察到的活动', observed_activity_copy: 'Osmosis 观察到了本地 Codex 活动。',
+      past_lessons: '学过的课', preparing: '正在备课', preparing_next: '正在准备下一课…',
+      project_activity: '{project} · 活动', project_outside: '这个项目将保持在学习轨迹之外。',
+      reports_only: '仅智能体汇报', reports_only_copy: '课程从明确的里程碑开始。',
+      review_empty: '答过的课程会收集在这里。', review_empty_copy: '现在没有需要复习的内容，把注意力留给眼前的工作就好。',
+      review_heading: '复习你已经遇见过的想法。', review_lessons: '复习学过的课',
+      save: '保存偏好', save_choice: '保存这个选择', saved: '学习偏好已保存。',
+      settings: '设置', settings_error: '暂时无法保存这些偏好。', settings_title: '把 Osmosis 调成你的节奏',
+      source_agent: '智能体汇报', source_observed_activity: '观察到的活动', source_observed_change: '观察到的改动',
+      stage2: '中文课程内容将在第二阶段到来。', trail_empty: '第一条有用活动会在这里开始你的轨迹。',
+      trail_note: '路线会随工作改变；这里没有虚构的课程进度要追。', trail_next: '一节后续课程已准备好，随时等你。',
+      uncarried_copy: '这个项目目前没有被保留。', waiting: '等待有用活动', warmup: '即时热身', warmup_copy: '根据刚刚的本地操作准备',
+      warmup_feedback: '这是一张即时热身，不会写入掌握度或课程记录。', why_no_card: '为什么还没有卡片？',
+      yes_carry: '保留这个项目', yes_carry_copy: '留下它的课程，让知识可以带到下一个项目。',
+      you_got_it: '答对了。', correction: '再想一想。', learned: '已学会', revisit: '以后复习', waiting_short: '等待中', now_short: '现在',
+      ui_language: '界面语言', mascot: '桌伴', mascot_copy: '让小渗在角落陪你观察学习活动。',
+      local_titles: '显示本地对话标题', local_titles_copy: '默认关闭；开启后只在本机保存简短标题，可随时关闭并清除。',
+      active_conversation: '当前对话：{title}',
+      archived_tabs: '已归档项目', close_activity: '关闭活动', close_settings: '关闭设置',
+      preferences: '学习偏好', project_activity_drawer: '项目活动', project_channels: '项目频道', trail_intro: '工作里浮现过的想法，会安静地留在这里；这不是一门需要赶进度的课。',
+      trail_title: '你的学习轨迹', studio_label: '学习工作台', studio_title: '一次只学一件有用的事。', while_agent_works: '趁智能体在工作',
+    },
+    en: {
+      activity: 'Activity', agent: 'Reported by agent', agent_copy: 'Your agent reported a milestone.',
+      archive: 'Archive', archive_error: 'Osmosis could not archive that project.', archive_hint: 'kept, never deleted', archived_projects: 'Archived projects',
+      auto_advance: 'Auto-advance', auto_advance_copy: 'Only after a ready Next lesson and a short quiet delay.',
+      capture: 'Capture', carry: 'Keep learning with this project', carried_copy: 'Carried projects have a private Studio trail.',
+      change: 'Observed change', change_copy: 'Osmosis observed a local Codex change.',
+      choose_project: 'Open a project with Osmosis to begin.', close: 'Close',
+      connection_error: 'Reconnecting…', current_lesson: 'Current lesson', decide_later: 'Decide later',
+      dont_carry: 'Don’t carry this project', dont_carry_copy: 'Leave it out of Osmosis. You can change this later.',
+      enable_project: 'Enable Osmosis for {project}?',
+      experimental_ambient: '+ Experimental Ambient Watch', experimental_ambient_copy: 'May observe local Codex activity when the machine-level switch is on.',
+      first_activation: 'First activation', global_learning: 'Global learning', idle_copy: 'Keep working; Osmosis will prepare the next lesson when it sees something useful.',
+      language: 'Lesson language', learning_off: 'Paused', learning_on: 'On', learning_paused: 'Learning paused',
+      no_activity: 'No durable activity yet. Reports and generator outcomes will appear here.', no_new_lesson: 'Nothing relevant yet',
+      now: 'Now', observed_activity: 'Observed activity', observed_activity_copy: 'Osmosis observed local Codex activity.',
+      past_lessons: 'Past lessons', preparing: 'Preparing', preparing_next: 'Preparing the next lesson…',
+      project_activity: '{project} · activity', project_outside: 'This project will stay outside your learning trail.',
+      reports_only: 'Agent reports only', reports_only_copy: 'Lessons begin from explicit milestones.',
+      review_empty: 'Your answered lessons will collect here.', review_empty_copy: 'There is nothing to revise yet — keep your attention on the work in front of you.',
+      review_heading: 'Revisit the ideas you have already met.', review_lessons: 'Review past lessons',
+      save: 'Save preferences', save_choice: 'Save this choice', saved: 'Learning preferences saved.',
+      settings: 'Settings', settings_error: 'Osmosis could not save those preferences.', settings_title: 'Make Osmosis yours',
+      source_agent: 'Reported by agent', source_observed_activity: 'Observed activity', source_observed_change: 'Observed change',
+      stage2: 'Chinese lesson content arrives in Stage 2.', trail_empty: 'Your trail will begin with the first useful signal from this project.',
+      trail_note: 'The route changes with your work; there is no fake curriculum to catch up on.', trail_next: 'One follow-up lesson is ready whenever you are.',
+      uncarried_copy: 'This project is not currently carried.', waiting: 'Waiting for useful activity', warmup: 'Instant warmup', warmup_copy: 'Prepared from the local action just observed',
+      warmup_feedback: 'This is an instant warmup; it never changes mastery or lesson history.', why_no_card: 'Why no card?',
+      yes_carry: 'Carry this project', yes_carry_copy: 'Keep its lessons and let its knowledge travel with you.',
+      you_got_it: 'That’s it.', correction: 'A small correction.', learned: 'Learned', revisit: 'Revisit later', waiting_short: 'Waiting', now_short: 'Now',
+      ui_language: 'Interface language', mascot: 'Desk buddy', mascot_copy: 'Let Xiao Shen keep a quiet eye on learning activity.',
+      local_titles: 'Show local conversation titles', local_titles_copy: 'Off by default; when enabled, short titles stay only on this device and clear when turned off.',
+      active_conversation: 'Active conversation: {title}',
+      archived_tabs: 'Archived projects', close_activity: 'Close activity', close_settings: 'Close settings',
+      preferences: 'Learning preferences', project_activity_drawer: 'Project activity', project_channels: 'Project channels', trail_intro: 'Ideas that surface while you work can rest quietly here; this is not a course you need to rush through.',
+      trail_title: 'Your learning trail', studio_label: 'Learning Studio', studio_title: 'Learn one useful thing at a time.', while_agent_works: 'While your agent works',
+    },
+  };
+
+  function uiLocale() {
+    return store.settings.ui_locale === 'en' ? 'en' : 'zh-CN';
+  }
+
+  function t(key, values = {}) {
+    const phrase = copy[uiLocale()][key] || copy['zh-CN'][key] || key;
+    return phrase.replace(/\{([a-z_]+)\}/g, (_, name) => String(values[name] ?? ''));
+  }
+
+  function refreshStaticCopy() {
+    document.documentElement.lang = uiLocale();
+    document.title = uiLocale() === 'en' ? 'Osmosis — Learning Studio' : 'Osmosis｜学习工作台';
+    for (const node of document.querySelectorAll('[data-i18n]')) {
+      node.textContent = t(node.dataset.i18n);
+    }
+    for (const node of document.querySelectorAll('[data-i18n-aria]')) {
+      node.setAttribute('aria-label', t(node.dataset.i18nAria));
+    }
+  }
 
   function escapeHtml(value) {
     return String(value ?? '')
@@ -70,7 +169,7 @@
       summary: {
         archived: false,
         last_activity_at: null,
-        name: 'Project',
+        name: uiLocale() === 'en' ? 'Project' : '项目',
         project_id: projectId,
         unanswered_count: 0,
       },
@@ -122,21 +221,25 @@
   }
 
   function sourceLabel(source) {
-    if (sourceKind(source) === 'observed-change') return 'Observed change';
-    if (sourceKind(source) === 'observed-activity') return 'Observed activity';
-    return 'Reported by agent';
+    if (sourceKind(source) === 'observed-change') return t('source_observed_change');
+    if (sourceKind(source) === 'observed-activity') return t('source_observed_activity');
+    return t('source_agent');
   }
 
   function sourceText(source) {
     if (source?.what_i_did) return source.what_i_did;
-    if (sourceKind(source) === 'observed-change') return 'Osmosis observed a local Codex change.';
-    if (sourceKind(source) === 'observed-activity') return 'Osmosis observed local Codex activity.';
-    return 'Your agent reported a milestone.';
+    if (sourceKind(source) === 'observed-change') return t('change_copy');
+    if (sourceKind(source) === 'observed-activity') return t('observed_activity_copy');
+    return t('agent_copy');
   }
 
   function sourceMarkup(source, { compact = false } = {}) {
     const kind = sourceKind(source);
-    return `<span class="provenance-label provenance-label--${kind}">${escapeHtml(sourceLabel(source))}</span>${compact ? '' : `<span class="source-copy">${escapeHtml(sourceText(source))}</span>`}`;
+    const title = store.settings.local_conversation_titles === true
+      && typeof source?.conversation_id === 'string'
+      ? store.conversationTitles.get(source.conversation_id)
+      : null;
+    return `<span class="provenance-label provenance-label--${kind}">${escapeHtml(sourceLabel(source))}</span>${title ? `<span class="conversation-badge" title="${escapeHtml(title)}">${escapeHtml(title)}</span>` : ''}${compact ? '' : `<span class="source-copy">${escapeHtml(sourceText(source))}</span>`}`;
   }
 
   function studioProgress(value) {
@@ -255,6 +358,7 @@
     if (snapshot.strengths && typeof snapshot.strengths === 'object') store.strengths = snapshot.strengths;
     if (snapshot.project) updateSummary(snapshot.project);
     project.hydrated = true;
+    void refreshConversationTitles();
   }
 
   function applyStudio(projectId, studio) {
@@ -272,19 +376,103 @@
     const project = activeProject();
     const studio = project?.studio;
     const progress = studioProgress(studio?.progress);
-    if (store.settings.global_learning === 'paused') return '学习已暂停';
-    if (progress?.phase === 'preparing') return '备课中';
-    if (progress?.phase === 'observed') return '已观察到活动';
-    if (['preparing', 'queued'].includes(studio?.waiting?.reason)) return '正在准备课程';
-    if (studio?.next_ready) return '下一课已就绪';
-    return '等待新的有用活动';
+    if (store.settings.global_learning === 'paused') return t('learning_paused');
+    if (progress?.phase === 'preparing') return t('preparing');
+    if (progress?.phase === 'observed') return t('observed_activity');
+    if (['preparing', 'queued'].includes(studio?.waiting?.reason)) return t('preparing');
+    if (studio?.next_ready) return uiLocale() === 'en' ? 'Next lesson ready' : '下一课已就绪';
+    return t('waiting');
+  }
+
+  function presentationForActive() {
+    const raw = activeProject()?.studio?.presentation;
+    return studioState?.describePresentation?.(raw) || {
+      epoch_id: null,
+      phase: 'idle',
+      stable_id: null,
+      reason: 'idle',
+      label: t('waiting'),
+      detail: t('idle_copy'),
+    };
+  }
+
+  function renderPipeline() {
+    if (!activityPipeline) return;
+    const presentation = presentationForActive();
+    const order = ['observed', 'preparing', 'card-ready'];
+    const labels = {
+      observed: ['👁', t('observed_activity')],
+      preparing: ['🍳', t('preparing')],
+      'card-ready': ['🎴', uiLocale() === 'en' ? 'Lesson ready' : '课程已就绪'],
+    };
+    const activeIndex = order.indexOf(presentation.phase);
+    activityPipeline.innerHTML = `<div class="pipeline-mascot" id="pipeline-mascot" aria-hidden="true"></div><div class="pipeline-steps">${order.map((phase, index) => {
+      const state = phase === presentation.phase ? ' is-active' : activeIndex > index ? ' is-complete' : '';
+      return `<span class="pipeline-step pipeline-step--${phase}${state}" data-pipeline-phase="${phase}"><b>${labels[phase][0]}</b><span>${escapeHtml(labels[phase][1])}</span></span>`;
+    }).join('<i class="pipeline-arrow" aria-hidden="true">→</i>')}</div><p class="pipeline-detail" data-presentation-id="${escapeHtml(presentation.stable_id || '')}">${escapeHtml(presentation.detail || t('idle_copy'))}</p>`;
+    const mascotState = presentation.phase === 'observed'
+      ? 'observing'
+      : presentation.phase === 'preparing'
+        ? 'preparing'
+        : presentation.phase === 'card-ready'
+          ? 'celebrate'
+          : 'idle';
+    window.OsmosisMascot?.mount?.(activityPipeline.querySelector('#pipeline-mascot'), {
+      enabled: store.settings.mascot_enabled !== false,
+      episode: presentation.stable_id,
+      state: mascotState,
+    });
+  }
+
+  function conversationIds() {
+    const ids = new Set();
+    for (const project of store.projects.values()) {
+      for (const card of [...project.cards, project.studio?.current].filter(Boolean)) {
+        if (typeof card?.source?.conversation_id === 'string') ids.add(card.source.conversation_id);
+      }
+    }
+    return [...ids].slice(0, 40);
+  }
+
+  async function refreshConversationTitles() {
+    if (store.settings.local_conversation_titles !== true) {
+      store.conversationTitles.clear();
+      return;
+    }
+    const missing = conversationIds().filter((id) => !store.conversationTitles.has(id));
+    if (missing.length === 0) return;
+    try {
+      const query = missing.map((id) => `id=${encodeURIComponent(id)}`).join('&');
+      const response = await fetch(`/conversation-titles?${query}`, { cache: 'no-store' });
+      if (!response.ok) return;
+      const payload = await response.json();
+      if (payload?.enabled !== true || !payload.titles || typeof payload.titles !== 'object') return;
+      for (const [id, title] of Object.entries(payload.titles)) {
+        if (typeof title === 'string') store.conversationTitles.set(id, title);
+      }
+      render();
+    } catch {
+      // Local labels are an optional layer; the Studio remains complete
+      // without them and never exposes a raw session fallback.
+    }
+  }
+
+  function renderActiveConversation() {
+    if (!activeConversation) return;
+    const source = activeProject()?.studio?.current?.source;
+    const title = store.settings.local_conversation_titles === true
+      && typeof source?.conversation_id === 'string'
+      ? store.conversationTitles.get(source.conversation_id)
+      : null;
+    activeConversation.hidden = !title;
+    activeConversation.textContent = title ? t('active_conversation', { title }) : '';
   }
 
   function renderConnection() {
     connection.textContent = statusForActive();
     connection.classList.toggle('live', store.settings.global_learning !== 'paused');
     connection.classList.toggle('paused', store.settings.global_learning === 'paused');
-    modeFooter.textContent = `${store.settings.global_learning === 'paused' ? '已暂停' : '实时'} · ${provider}`;
+    modeFooter.textContent = `${store.settings.global_learning === 'paused' ? t('learning_off') : (uiLocale() === 'en' ? 'Live' : '实时')} · ${provider}`;
   }
 
   function markActivity(projectId, { ready = true } = {}) {
@@ -310,18 +498,18 @@
     const strength = strengthFor(card.concept_id);
     const answered = Boolean(card.state?.answered);
     const state = active ? 'now' : answered && strength >= 2 ? 'mastered' : answered ? 'review' : 'waiting';
-    const caption = active ? 'Now' : answered && strength >= 2 ? 'Learned' : answered ? 'Revisit later' : 'Waiting';
+    const caption = active ? t('now_short') : answered && strength >= 2 ? t('learned') : answered ? t('revisit') : t('waiting_short');
     return `<li class="trail-item trail-item--${state}">
       <span class="trail-dot" aria-hidden="true"></span>
-      <div><strong>${escapeHtml(card.concept_name || 'A useful concept')}</strong><span>${escapeHtml(caption)}</span></div>
+      <div><strong>${escapeHtml(card.concept_name || (uiLocale() === 'en' ? 'A useful concept' : '一个有用的概念'))}</strong><span>${escapeHtml(caption)}</span></div>
     </li>`;
   }
 
   function renderTrail() {
     const project = activeProject();
     if (!project) {
-      trail.innerHTML = '<li class="trail-empty">Choose a project to begin a small, living trail.</li>';
-      trailNote.textContent = 'Osmosis only keeps learning state for projects you choose to carry.';
+      trail.innerHTML = `<li class="trail-empty">${escapeHtml(t('choose_project'))}</li>`;
+      trailNote.textContent = uiLocale() === 'en' ? 'Osmosis only keeps learning state for projects you choose to carry.' : 'Osmosis 只会为你选择保留的项目保存学习状态。';
       return;
     }
     const current = studioNowKind(project.studio) === 'real' ? project.studio?.current : null;
@@ -330,28 +518,54 @@
     cards.sort((left, right) => Date.parse(left.created_at || '') - Date.parse(right.created_at || ''));
     trail.innerHTML = cards.length
       ? cards.slice(-10).map((card) => trailItem(card, card.card_id === current?.card_id)).join('')
-      : '<li class="trail-empty">Your trail will begin with the first useful signal from this project.</li>';
+      : `<li class="trail-empty">${escapeHtml(t('trail_empty'))}</li>`;
     const next = project.studio?.next_ready;
     trailNote.textContent = next
-      ? 'One follow-up lesson is ready whenever you are.'
-      : 'The route changes with your work; there is no fake curriculum to catch up on.';
+      ? t('trail_next')
+      : t('trail_note');
   }
 
-  function summaryTab(project) {
+  function projectDisplayNames(projects) {
+    if (projectLabels?.displayNames) {
+      return projectLabels.displayNames(projects, { fallback: uiLocale() === 'en' ? 'Project' : '项目' });
+    }
+    const names = new Map();
+    const groups = new Map();
+    for (const project of projects) {
+      const key = String(project.summary.name || (uiLocale() === 'en' ? 'Project' : '项目'));
+      const group = groups.get(key) || [];
+      group.push(project);
+      groups.set(key, group);
+    }
+    for (const [name, group] of groups) {
+      group.sort((left, right) => left.summary.project_id.localeCompare(right.summary.project_id));
+      group.forEach((project, index) => {
+        names.set(project.summary.project_id, group.length > 1 ? `${name} ·${index + 1}` : name);
+      });
+    }
+    return names;
+  }
+
+  function summaryTab(project, displayName) {
     const summary = project.summary;
     const active = summary.project_id === store.activeProjectId;
     const ready = store.readyProjectIds.has(summary.project_id);
     const waiting = Number(summary.unanswered_count || 0);
+    const tooltipId = projectLabels?.tooltipId?.(summary.project_id)
+      || `project-tooltip-${String(summary.project_id).replaceAll(/[^A-Za-z0-9_-]/g, '')}`;
+    const fullPath = typeof summary.root === 'string' && summary.root ? summary.root : displayName;
+    const accessiblePath = projectLabels?.accessiblePath?.(fullPath, displayName, uiLocale())
+      || (uiLocale() === 'en' ? `Full path: ${fullPath}` : `完整路径：${fullPath}`);
     return `<div class="project-tab-wrap">
-      <button class="project-tab${active ? ' is-active' : ''}" type="button" role="tab" aria-selected="${active}" data-project-tab="${escapeHtml(summary.project_id)}">
-        <span class="project-tab-name">${escapeHtml(summary.name)}</span>
-        ${ready ? '<span class="ready-dot" aria-label="New activity"></span>' : ''}
+      <button class="project-tab${active ? ' is-active' : ''}" type="button" role="tab" aria-selected="${active}" aria-describedby="${escapeHtml(tooltipId)}" title="${escapeHtml(fullPath)}" data-project-tab="${escapeHtml(summary.project_id)}">
+        <span class="project-tab-name">${escapeHtml(displayName)}</span><span class="sr-only" id="${escapeHtml(tooltipId)}">${escapeHtml(accessiblePath)}</span>
+        ${ready ? `<span class="ready-dot" aria-label="${escapeHtml(uiLocale() === 'en' ? 'New activity' : '有新活动')}"></span>` : ''}
         ${waiting ? `<span class="project-count">${waiting}</span>` : ''}
       </button>
-      <button class="project-icon-button" type="button" data-project-activity="${escapeHtml(summary.project_id)}" aria-label="Show activity for ${escapeHtml(summary.name)}">⌁</button>
+      <button class="project-icon-button" type="button" data-project-activity="${escapeHtml(summary.project_id)}" aria-label="${escapeHtml(uiLocale() === 'en' ? `Show activity for ${displayName}` : `查看 ${displayName} 的活动`)}">⌁</button>
       ${summary.archived
-        ? `<button class="project-icon-button project-icon-button--restore" type="button" data-project-restore="${escapeHtml(summary.project_id)}" aria-label="Restore ${escapeHtml(summary.name)}">↗</button>`
-        : `<button class="project-icon-button project-icon-button--archive" type="button" data-project-archive="${escapeHtml(summary.project_id)}" aria-label="Archive ${escapeHtml(summary.name)}">×</button>`}
+        ? `<button class="project-icon-button project-icon-button--restore" type="button" data-project-restore="${escapeHtml(summary.project_id)}" aria-label="${escapeHtml(uiLocale() === 'en' ? `Restore ${displayName}` : `恢复 ${displayName}`)}">↗</button>`
+        : `<button class="project-icon-button project-icon-button--archive" type="button" data-project-archive="${escapeHtml(summary.project_id)}" aria-label="${escapeHtml(uiLocale() === 'en' ? `Archive ${displayName}` : `归档 ${displayName}`)}">×</button>`}
     </div>`;
   }
 
@@ -376,10 +590,11 @@
       const rightTime = Date.parse(right.summary.last_activity_at || '') || 0;
       return rightTime - leftTime || left.summary.name.localeCompare(right.summary.name);
     });
+    const displayNames = projectDisplayNames(projects);
     const open = projects.filter((project) => !project.summary.archived || project.summary.project_id === store.activeProjectId);
     const archived = projects.filter((project) => project.summary.archived && project.summary.project_id !== store.activeProjectId);
-    projectTabs.innerHTML = open.map(summaryTab).join('');
-    archivedTabs.innerHTML = archived.map(summaryTab).join('');
+    projectTabs.innerHTML = open.map((project) => summaryTab(project, displayNames.get(project.summary.project_id) || project.summary.name)).join('');
+    archivedTabs.innerHTML = archived.map((project) => summaryTab(project, displayNames.get(project.summary.project_id) || project.summary.name)).join('');
     archivedGroup.hidden = archived.length === 0;
     bindTabActions(projectTabs);
     bindTabActions(archivedTabs);
@@ -392,8 +607,12 @@
       activationInbox.innerHTML = '';
       return;
     }
-    activationInbox.innerHTML = `<div class="activation-inbox-copy"><p class="eyebrow">New project${pending.length === 1 ? '' : 's'}</p><p>${pending.length === 1 ? 'Osmosis is waiting for one project choice.' : `${pending.length} projects are waiting for your choice.`}</p></div>
-      <div class="activation-inbox-actions">${pending.map((activation) => `<button class="activation-inbox-button${activation.project_id === activationTargetId() ? ' is-focused' : ''}" type="button" data-activation-open="${escapeHtml(activation.project_id)}"><span>${escapeHtml(activation.name || 'project')}</span>${activation.pending_report_count ? `<small>${activation.pending_report_count} held report${activation.pending_report_count === 1 ? '' : 's'}</small>` : '<small>Choose setup</small>'}</button>`).join('')}</div>`;
+    const inboxTitle = uiLocale() === 'en' ? `New project${pending.length === 1 ? '' : 's'}` : '新项目';
+    const inboxCopy = uiLocale() === 'en'
+      ? pending.length === 1 ? 'Osmosis is waiting for one project choice.' : `${pending.length} projects are waiting for your choice.`
+      : pending.length === 1 ? '有一个项目在等你决定是否保留。' : `有 ${pending.length} 个项目在等你决定是否保留。`;
+    activationInbox.innerHTML = `<div class="activation-inbox-copy"><p class="eyebrow">${escapeHtml(inboxTitle)}</p><p>${escapeHtml(inboxCopy)}</p></div>
+      <div class="activation-inbox-actions">${pending.map((activation) => `<button class="activation-inbox-button${activation.project_id === activationTargetId() ? ' is-focused' : ''}" type="button" data-activation-open="${escapeHtml(activation.project_id)}"><span>${escapeHtml(activation.name || (uiLocale() === 'en' ? 'project' : '项目'))}</span>${activation.pending_report_count ? `<small>${activation.pending_report_count}${uiLocale() === 'en' ? ` held report${activation.pending_report_count === 1 ? '' : 's'}` : ' 条暂存汇报'}</small>` : `<small>${uiLocale() === 'en' ? 'Choose setup' : '选择设置'}</small>`}</button>`).join('')}</div>`;
     for (const button of activationInbox.querySelectorAll('[data-activation-open]')) {
       button.addEventListener('click', () => {
         store.activationProjectId = button.dataset.activationOpen;
@@ -412,10 +631,10 @@
     const preparing = waiting?.reason === 'preparing';
     const queued = waiting?.reason === 'queued';
     const message = preparing
-      ? '正在根据最新的有用活动准备课程。'
+      ? (uiLocale() === 'en' ? 'Preparing a lesson from the newest useful activity.' : '正在根据最新的有用活动准备课程。')
       : queued
-        ? '已观察到的活动正在等待下一课的可用位置。'
-        : '继续工作吧；看到有用活动后，Osmosis 会准备下一课。';
+        ? (uiLocale() === 'en' ? 'Observed activity is waiting for a usable Next slot.' : '已观察到的活动正在等待下一课的可用位置。')
+        : t('idle_copy');
     if (progress) {
       return `<article class="waiting-card waiting-card--progress">
         <span class="waiting-orb" aria-hidden="true"></span>
@@ -425,7 +644,7 @@
     }
     return `<article class="waiting-card">
       <span class="waiting-orb" aria-hidden="true"></span>
-      <p class="eyebrow">${preparing ? '正在备课' : queued ? '活动已排队' : '等待有用活动'}</p>
+      <p class="eyebrow">${escapeHtml(preparing ? t('preparing') : queued ? (uiLocale() === 'en' ? 'Activity queued' : '活动已排队') : t('waiting'))}</p>
       <h3>${escapeHtml(message)}</h3>
       ${provenance}
     </article>`;
@@ -437,18 +656,18 @@
     const controlState = studioState?.nextControlState?.(studio)
       || (studio.next_ready ? 'ready' : ['preparing', 'queued'].includes(studio.waiting?.reason) ? 'preparing' : 'idle');
     if (controlState === 'ready') {
-      return `<button class="next-lesson" type="button" data-next-lesson>${warmup ? '下一课' : 'Next lesson'} <span aria-hidden="true">→</span></button>`;
+      return `<button class="next-lesson" type="button" data-next-lesson>${warmup || uiLocale() !== 'en' ? '下一课' : 'Next lesson'} <span aria-hidden="true">→</span></button>`;
     }
     const waiting = studio.waiting;
     const hasWork = controlState === 'preparing';
     const source = waiting?.source_provenance;
     if (warmup) {
       return `<div class="next-waiting">
-        <button class="next-lesson next-lesson--muted" type="button" disabled>${hasWork ? '正在准备下一课…' : '暂时没有新的相关课程'}</button>
+        <button class="next-lesson next-lesson--muted" type="button" disabled>${hasWork ? t('preparing_next') : t('no_new_lesson')}</button>
       </div>`;
     }
     return `<div class="next-waiting">
-        <button class="next-lesson next-lesson--muted" type="button" disabled>${hasWork ? '正在准备下一课…' : '暂时没有新的相关课程'}</button>
+        <button class="next-lesson next-lesson--muted" type="button" disabled>${hasWork ? t('preparing_next') : t('no_new_lesson')}</button>
         ${hasWork && source ? `<p>${sourceMarkup(source, { compact: true })}<span>${escapeHtml(sourceText(source))}</span></p>` : ''}
       </div>`;
   }
@@ -459,9 +678,9 @@
     const selectedIndex = answered ? card.state.chosen_index : pending?.cardId === card.warmup_id ? pending.index : null;
     const feedback = answered
       ? `<section class="answer-feedback ${card.state.correct ? 'correct' : 'incorrect'}" aria-live="polite">
-          <p class="result-label">${card.state.correct ? '答对了。' : '再想一想。'}</p>
+          <p class="result-label">${escapeHtml(card.state.correct ? t('you_got_it') : t('correction'))}</p>
           <p>${escapeHtml(card.explanation || '')}</p>
-          <p>这是一张即时热身，不会写入掌握度或课程记录。</p>
+          <p>${escapeHtml(t('warmup_feedback'))}</p>
         </section>`
       : '';
     const warmupLabels = ['甲', '乙', '丙'];
@@ -474,10 +693,10 @@
         <span class="answer-letter">${warmupLabels[index] || '选项'}</span><span>${escapeHtml(option)}</span>
       </button>`;
     }).join('') : '';
-    return `<article class="lesson-card lesson-card--warmup" aria-label="即时热身">
-      <div class="card-topline"><p class="card-kicker">即时热身</p><span class="now-status">一题小练习</span></div>
-      <p class="card-concept">${escapeHtml(card.title || card.concept_name || '刚刚用到的概念')}</p>
-      <p class="source-line source-line--observed-activity"><span class="provenance-label provenance-label--observed-activity">观察到的活动</span><span class="source-copy">根据刚刚的本地操作准备</span></p>
+    return `<article class="lesson-card lesson-card--warmup" aria-label="${escapeHtml(t('warmup'))}">
+      <div class="card-topline"><p class="card-kicker">${escapeHtml(t('warmup'))}</p><span class="now-status">${uiLocale() === 'en' ? 'One small question' : '一题小练习'}</span></div>
+      <p class="card-concept">${escapeHtml(card.title || card.concept_name || (uiLocale() === 'en' ? 'A concept you just used' : '刚刚用到的概念'))}</p>
+      <p class="source-line source-line--observed-activity"><span class="provenance-label provenance-label--observed-activity">${escapeHtml(t('observed_activity'))}</span><span class="source-copy">${escapeHtml(t('warmup_copy'))}</span></p>
       ${progressMarkup(project.studio?.progress, { compact: true })}
       <p class="lesson-copy">${escapeHtml(card.lesson || '')}</p>
       <h3>${escapeHtml(card.question || '')}</h3>
@@ -490,7 +709,7 @@
   function renderNow(project) {
     const activation = activationFor(project.project_id);
     if (store.settings.global_learning === 'paused') {
-      return `<article class="waiting-card waiting-card--paused"><p class="eyebrow">Learning paused</p><h3>Osmosis is not capturing or making new lessons right now.</h3><p>Your trail and past lessons are still here whenever you want them.</p></article>`;
+      return `<article class="waiting-card waiting-card--paused"><p class="eyebrow">${escapeHtml(t('learning_paused'))}</p><h3>${escapeHtml(uiLocale() === 'en' ? 'Osmosis is not capturing or making new lessons right now.' : 'Osmosis 现在不会捕捉活动或制作新课程。')}</h3><p>${escapeHtml(uiLocale() === 'en' ? 'Your trail and past lessons are still here whenever you want them.' : '你的轨迹和学过的课程仍然在这里。')}</p></article>`;
     }
     const warmup = currentWarmup(project);
     if (warmup) return renderWarmupNow(project, warmup);
@@ -501,7 +720,7 @@
     const selectedIndex = answered ? card.state.chosen_index : pending?.cardId === card.card_id ? pending.index : null;
     const feedback = answered
       ? `<section class="answer-feedback ${card.state.correct ? 'correct' : 'incorrect'}" aria-live="polite">
-          <p class="result-label">${card.state.correct ? 'That’s it.' : 'A small correction.'}</p>
+          <p class="result-label">${escapeHtml(card.state.correct ? t('you_got_it') : t('correction'))}</p>
           <p>${escapeHtml(card.explanation || '')}</p>
         </section>`
       : '';
@@ -514,15 +733,15 @@
         <span class="answer-letter">${String.fromCharCode(65 + index)}</span><span>${escapeHtml(option)}</span>
       </button>`;
     }).join('') : '';
-    const locale = activation?.lesson_locale === 'zh-CN' ? 'Chinese content arrives in Stage 2' : '';
-    return `<article class="lesson-card" aria-label="Current lesson">
-      <div class="card-topline"><p class="card-kicker">Now</p><span class="now-status">one question</span></div>
+    const locale = activation?.lesson_locale === 'zh-CN' ? t('stage2') : '';
+    return `<article class="lesson-card" aria-label="${escapeHtml(t('current_lesson'))}">
+      <div class="card-topline"><p class="card-kicker">${escapeHtml(t('now'))}</p><span class="now-status">${uiLocale() === 'en' ? 'one question' : '一题专注练习'}</span></div>
       <p class="card-concept">${escapeHtml(card.concept_name)}</p>
       <p class="source-line source-line--${sourceKind(card.source)}">${sourceMarkup(card.source)}</p>
       ${progressMarkup(project.studio?.progress, { compact: true })}
       <p class="lesson-copy">${escapeHtml(card.lesson)}</p>
       <h3>${escapeHtml(card.question)}</h3>
-      <div class="answers" aria-label="Answer choices">${choices}</div>
+      <div class="answers" aria-label="${escapeHtml(uiLocale() === 'en' ? 'Answer choices' : '答案选项')}">${choices}</div>
       ${feedback}
       ${nextControl(project, card)}
       ${locale ? `<p class="locale-note">${escapeHtml(locale)}</p>` : ''}
@@ -532,39 +751,39 @@
   function renderReview(project) {
     const cards = realCards(project.cards).filter((card) => card.state?.answered);
     if (!cards.length) {
-      return `<article class="waiting-card"><p class="eyebrow">Past lessons</p><h3>Your answered lessons will collect here.</h3><p>There is nothing to revise yet — keep your attention on the work in front of you.</p></article>`;
+      return `<article class="waiting-card"><p class="eyebrow">${escapeHtml(t('past_lessons'))}</p><h3>${escapeHtml(t('review_empty'))}</h3><p>${escapeHtml(t('review_empty_copy'))}</p></article>`;
     }
-    return `<section class="review-area" aria-label="Past lessons">
-      <header class="review-heading"><p class="eyebrow">Past lessons</p><h3>Revisit the ideas you have already met.</h3></header>
+    return `<section class="review-area" aria-label="${escapeHtml(t('past_lessons'))}">
+      <header class="review-heading"><p class="eyebrow">${escapeHtml(t('past_lessons'))}</p><h3>${escapeHtml(t('review_heading'))}</h3></header>
       <ol class="review-list">${[...cards].reverse().map((card) => `<li class="review-card">
         <div><p class="card-concept">${escapeHtml(card.concept_name)}</p><p class="source-line source-line--${sourceKind(card.source)}">${sourceMarkup(card.source)}</p></div>
         <p>${escapeHtml(card.lesson)}</p>
-        <p class="review-answer"><strong>${card.state?.correct ? 'Learned' : 'Worth revisiting'}</strong> ${escapeHtml(card.explanation || '')}</p>
+        <p class="review-answer"><strong>${escapeHtml(card.state?.correct ? t('learned') : t('revisit'))}</strong> ${escapeHtml(card.explanation || '')}</p>
       </li>`).join('')}</ol>
     </section>`;
   }
 
   function renderActivation(activation) {
-    const projectName = activation?.name || 'this project';
+    const projectName = activation?.name || (uiLocale() === 'en' ? 'this project' : '这个项目');
     const held = Number(activation?.pending_report_count || 0);
     return `<article class="activation-card">
-      <p class="eyebrow">First activation</p>
-      <h3>Enable Osmosis for ${escapeHtml(projectName)}?</h3>
-      <p>This is your call. Until you choose, agent reports${held ? ` (${held} held ${held === 1 ? 'milestone' : 'milestones'})` : ''} wait safely and ambient activity creates no project learning state.</p>
+      <p class="eyebrow">${escapeHtml(t('first_activation'))}</p>
+      <h3>${escapeHtml(t('enable_project', { project: projectName }))}</h3>
+      <p>${escapeHtml(uiLocale() === 'en' ? `This is your call. Until you choose, agent reports${held ? ` (${held} held ${held === 1 ? 'milestone' : 'milestones'})` : ''} wait safely and ambient activity creates no project learning state.` : `由你决定。在你选择前，智能体汇报${held ? `（已有 ${held} 条暂存）` : ''}会安全等待，环境观察也不会为这个项目创建学习状态。`)}</p>
       <form id="activation-form" class="choice-form">
-        <fieldset><legend>Learning for this project</legend>
-          <label class="choice-row"><input type="radio" name="carry" value="yes" checked><span><strong>Carry this project</strong><small>Keep its lessons and let its knowledge travel with you.</small></span></label>
-          <label class="choice-row"><input type="radio" name="carry" value="no"><span><strong>Don’t carry it</strong><small>Leave it out of Osmosis. You can change this later.</small></span></label>
+        <fieldset><legend>${escapeHtml(uiLocale() === 'en' ? 'Learning for this project' : '这个项目的学习方式')}</legend>
+          <label class="choice-row"><input type="radio" name="carry" value="yes" checked><span><strong>${escapeHtml(t('yes_carry'))}</strong><small>${escapeHtml(t('yes_carry_copy'))}</small></span></label>
+          <label class="choice-row"><input type="radio" name="carry" value="no"><span><strong>${escapeHtml(t('dont_carry'))}</strong><small>${escapeHtml(t('dont_carry_copy'))}</small></span></label>
         </fieldset>
-        <fieldset><legend>Lesson language</legend>
-          <label class="select-label">Language<select name="lesson_locale"><option value="en">English</option><option value="zh-CN">Simplified Chinese</option></select></label>
+        <fieldset><legend>${escapeHtml(t('language'))}</legend>
+          <label class="select-label">${escapeHtml(t('language'))}<select name="lesson_locale"><option value="en">English</option><option value="zh-CN">简体中文</option></select></label>
         </fieldset>
-        <fieldset><legend>Capture</legend>
-          <label class="choice-row"><input type="radio" name="capture_mode" value="agent-reports-only" checked><span><strong>Agent reports only</strong><small>Lessons begin from explicit milestones.</small></span></label>
-          <label class="choice-row"><input type="radio" name="capture_mode" value="experimental-ambient"><span><strong>+ Experimental Ambient Watch</strong><small>May observe local Codex activity when the machine-level switch is on.</small></span></label>
+        <fieldset><legend>${escapeHtml(t('capture'))}</legend>
+          <label class="choice-row"><input type="radio" name="capture_mode" value="agent-reports-only" checked><span><strong>${escapeHtml(t('reports_only'))}</strong><small>${escapeHtml(t('reports_only_copy'))}</small></span></label>
+          <label class="choice-row"><input type="radio" name="capture_mode" value="experimental-ambient"><span><strong>${escapeHtml(t('experimental_ambient'))}</strong><small>${escapeHtml(t('experimental_ambient_copy'))}</small></span></label>
         </fieldset>
-        <button class="primary-button" type="submit">Save this choice</button>
-        ${activeProject() ? '<button class="activation-later" type="button" data-dismiss-activation>Decide later</button>' : ''}
+        <button class="primary-button" type="submit">${escapeHtml(t('save_choice'))}</button>
+        ${activeProject() ? `<button class="activation-later" type="button" data-dismiss-activation>${escapeHtml(t('decide_later'))}</button>` : ''}
       </form>
     </article>`;
   }
@@ -587,7 +806,7 @@
     }
     const project = activeProject();
     if (!project) {
-      cardStage.innerHTML = `<article class="waiting-card"><p class="eyebrow">Learning Studio</p><h3>Open a project with Osmosis to begin.</h3><p>Only projects you choose to carry appear as learning channels.</p></article>`;
+      cardStage.innerHTML = `<article class="waiting-card"><p class="eyebrow">${escapeHtml(uiLocale() === 'en' ? 'Learning Studio' : '学习工作台')}</p><h3>${escapeHtml(t('choose_project'))}</h3><p>${escapeHtml(uiLocale() === 'en' ? 'Only projects you choose to carry appear as learning channels.' : '只有你选择保留的项目会成为学习频道。')}</p></article>`;
       bindStageActions();
       return;
     }
@@ -603,17 +822,20 @@
     }
     const project = projectFor(store.drawerProjectId);
     activityDrawer.hidden = false;
-    activityTitle.textContent = `${project.summary.name} · activity`;
+    activityTitle.textContent = t('project_activity', { project: project.summary.name });
     const entries = project.activities.slice(-100).reverse();
     activityList.innerHTML = entries.length
-      ? entries.map((entry) => `<li class="activity-entry"><span class="activity-state activity-state--${escapeHtml(entry.state || 'observed')}">${escapeHtml(entry.state || 'observed')}</span><span>${escapeHtml(entry.message || entry.reason || entry.event || 'Project activity')}</span></li>`).join('')
-      : '<li class="activity-empty">No durable activity yet. Reports and generator outcomes will appear here.</li>';
+      ? entries.map((entry) => `<li class="activity-entry"><span class="activity-state activity-state--${escapeHtml(entry.state || 'observed')}">${escapeHtml(entry.state || 'observed')}</span><span>${escapeHtml(entry.message || entry.reason || entry.event || t('activity'))}</span></li>`).join('')
+      : `<li class="activity-empty">${escapeHtml(t('no_activity'))}</li>`;
   }
 
   function render() {
+    refreshStaticCopy();
     renderTabs();
     renderActivationInbox();
     renderConnection();
+    renderPipeline();
+    renderActiveConversation();
     renderTrail();
     renderNav();
     renderStage();
@@ -741,14 +963,16 @@
         if (!hadActiveProject) {
           await selectProject(activation.project_id, 'now', { writeHash: true, forceHydrate: true });
         } else {
-          showToast(result.released ? 'Your held milestone is becoming a lesson in its project tab.' : 'This project is ready in its tab.');
+          showToast(result.released
+            ? (uiLocale() === 'en' ? 'Your held milestone is becoming a lesson in its project tab.' : '暂存的里程碑正在该项目标签中变成课程。')
+            : (uiLocale() === 'en' ? 'This project is ready in its tab.' : '这个项目已经在它的标签中就绪。'));
         }
       } else {
-        showToast('This project will stay outside your learning trail.');
+        showToast(t('project_outside'));
       }
       render();
     } catch {
-      showToast('Osmosis could not save that choice. Please try again.');
+      showToast(uiLocale() === 'en' ? 'Osmosis could not save that choice. Please try again.' : '暂时无法保存这个选择，请稍后再试。');
     }
   }
 
@@ -795,7 +1019,9 @@
     } catch {
       store.pendingAnswers.delete(projectId);
       renderStage();
-      showToast(isWarmup ? '这张热身题暂时无法保存，请稍后再试。' : 'Osmosis could not save that answer. Please try again.');
+      showToast(isWarmup
+        ? (uiLocale() === 'en' ? 'This warmup answer could not be saved yet. Please try again.' : '这张热身题暂时无法保存，请稍后再试。')
+        : (uiLocale() === 'en' ? 'Osmosis could not save that answer. Please try again.' : '暂时无法保存这次回答，请稍后再试。'));
     }
   }
 
@@ -833,11 +1059,11 @@
         return;
       }
       if (result.studio) applyStudio(projectId, result.studio);
-      if (result.state === 'answer-required') showToast('Answer the current question first.');
-      else if (!auto) showToast(result.state === 'preparing' ? 'Your next lesson is still preparing.' : 'Nothing new is ready yet.');
+      if (result.state === 'answer-required') showToast(uiLocale() === 'en' ? 'Answer the current question first.' : '请先回答当前问题。');
+      else if (!auto) showToast(result.state === 'preparing' ? t('preparing_next') : t('no_new_lesson'));
       if (store.activeProjectId === projectId) render();
     } catch {
-      if (!auto) showToast('Osmosis could not open the next lesson yet.');
+      if (!auto) showToast(uiLocale() === 'en' ? 'Osmosis could not open the next lesson yet.' : '暂时无法打开下一课。');
     }
   }
 
@@ -893,7 +1119,7 @@
         renderTabs();
       }
     } catch {
-      if (store.activeProjectId === projectId) showToast('Osmosis could not load that project yet.');
+      if (store.activeProjectId === projectId) showToast(uiLocale() === 'en' ? 'Osmosis could not load that project yet.' : '暂时无法加载这个项目。');
     }
   }
 
@@ -928,7 +1154,7 @@
       project.activities = Array.isArray(body.entries) ? body.entries : project.activities;
       renderActivity();
     } catch {
-      project.activities.push({ event: 'drawer', message: 'Activity history is temporarily unavailable.', state: 'failed' });
+      project.activities.push({ event: 'drawer', message: uiLocale() === 'en' ? 'Activity history is temporarily unavailable.' : '活动记录暂时不可用。', state: 'failed' });
       renderActivity();
     }
   }
@@ -939,7 +1165,7 @@
       if (!response.ok) throw new Error('Archive unavailable');
       updateSummary((await response.json()).project);
       renderTabs();
-    } catch { showToast('Osmosis could not archive that project.'); }
+    } catch { showToast(t('archive_error')); }
   }
 
   async function restoreProject(projectId) {
@@ -948,33 +1174,43 @@
       if (!response.ok) throw new Error('Restore unavailable');
       updateSummary((await response.json()).project);
       renderTabs();
-    } catch { showToast('Osmosis could not restore that project.'); }
+    } catch { showToast(uiLocale() === 'en' ? 'Osmosis could not restore that project.' : '暂时无法恢复这个项目。'); }
   }
 
   function renderSettings() {
     const activation = activationFor();
     const paused = store.settings.global_learning === 'paused';
     const projectControls = activation
-      ? `<section class="settings-group"><p class="settings-label">${escapeHtml(activation.name || 'This project')}</p>
-          <label class="toggle-row"><span><strong>Learning stays with this project</strong><small>${activation.carry ? 'Carried projects have a private Studio trail.' : 'This project is not currently carried.'}</small></span><input id="setting-carry" type="checkbox" ${activation.carry ? 'checked' : ''}></label>
-          <label class="select-label">Capture<select id="setting-capture"><option value="agent-reports-only" ${activation.capture_mode === 'agent-reports-only' ? 'selected' : ''}>Agent reports only</option><option value="experimental-ambient" ${activation.capture_mode === 'experimental-ambient' ? 'selected' : ''}>+ Experimental Ambient Watch</option></select></label>
-          <label class="toggle-row"><span><strong>Auto-advance</strong><small>Only after a ready Next lesson and a short quiet delay.</small></span><input id="setting-auto" type="checkbox" ${activation.auto_advance ? 'checked' : ''}></label>
+      ? `<section class="settings-group"><p class="settings-label">${escapeHtml(activation.name || (uiLocale() === 'en' ? 'This project' : '这个项目'))}</p>
+          <label class="toggle-row"><span><strong>${escapeHtml(t('carry'))}</strong><small>${escapeHtml(activation.carry ? t('carried_copy') : t('uncarried_copy'))}</small></span><input id="setting-carry" type="checkbox" ${activation.carry ? 'checked' : ''}></label>
+          <label class="select-label">${escapeHtml(t('capture'))}<select id="setting-capture"><option value="agent-reports-only" ${activation.capture_mode === 'agent-reports-only' ? 'selected' : ''}>${escapeHtml(t('reports_only'))}</option><option value="experimental-ambient" ${activation.capture_mode === 'experimental-ambient' ? 'selected' : ''}>${escapeHtml(t('experimental_ambient'))}</option></select></label>
+          <label class="toggle-row"><span><strong>${escapeHtml(t('auto_advance'))}</strong><small>${escapeHtml(t('auto_advance_copy'))}</small></span><input id="setting-auto" type="checkbox" ${activation.auto_advance ? 'checked' : ''}></label>
         </section>`
-      : '<p class="settings-copy">Start Osmosis in a project to choose its learning settings.</p>';
+      : `<p class="settings-copy">${escapeHtml(t('choose_project'))}</p>`;
     settingsContent.innerHTML = `<section class="settings-group">
-      <p class="settings-label">Global learning</p>
-      <label class="toggle-row"><span><strong>${paused ? 'Paused' : 'On'}</strong><small>${paused ? 'No new capture, generation, or delivery.' : 'Osmosis can turn useful work into lessons.'}</small></span><input id="setting-global" type="checkbox" ${paused ? '' : 'checked'}></label>
-      <label class="select-label">Lesson language<select id="setting-locale"><option value="en" ${store.settings.lesson_locale === 'en' ? 'selected' : ''}>English</option><option value="zh-CN" ${store.settings.lesson_locale === 'zh-CN' ? 'selected' : ''}>Simplified Chinese</option></select></label>
-    </section>${projectControls}<button class="primary-button" id="save-settings" type="button">Save preferences</button>`;
+      <p class="settings-label">${escapeHtml(t('global_learning'))}</p>
+      <label class="toggle-row"><span><strong>${escapeHtml(paused ? t('learning_off') : t('learning_on'))}</strong><small>${escapeHtml(paused ? (uiLocale() === 'en' ? 'No new capture, generation, or delivery.' : '不会捕捉、生成或投递新课程。') : (uiLocale() === 'en' ? 'Osmosis can turn useful work into lessons.' : 'Osmosis 会把有用的工作变成课程。'))}</small></span><input id="setting-global" type="checkbox" ${paused ? '' : 'checked'}></label>
+      <label class="select-label">${escapeHtml(t('ui_language'))}<select id="setting-ui-locale"><option value="zh-CN" ${uiLocale() === 'zh-CN' ? 'selected' : ''}>简体中文</option><option value="en" ${uiLocale() === 'en' ? 'selected' : ''}>English</option></select></label>
+      <label class="select-label">${escapeHtml(t('language'))}<select id="setting-locale"><option value="en" ${store.settings.lesson_locale === 'en' ? 'selected' : ''}>English</option><option value="zh-CN" ${store.settings.lesson_locale === 'zh-CN' ? 'selected' : ''}>简体中文</option></select></label>
+      <label class="toggle-row"><span><strong>${escapeHtml(t('mascot'))}</strong><small>${escapeHtml(t('mascot_copy'))}</small></span><input id="setting-mascot" type="checkbox" ${store.settings.mascot_enabled === false ? '' : 'checked'}></label>
+      <label class="toggle-row"><span><strong>${escapeHtml(t('local_titles'))}</strong><small>${escapeHtml(t('local_titles_copy'))}</small></span><input id="setting-local-titles" type="checkbox" ${store.settings.local_conversation_titles === true ? 'checked' : ''}></label>
+    </section>${projectControls}<button class="primary-button" id="save-settings" type="button">${escapeHtml(t('save'))}</button>`;
     settingsContent.querySelector('#save-settings')?.addEventListener('click', () => void saveSettings());
   }
 
   async function saveSettings() {
     const global = settingsContent.querySelector('#setting-global')?.checked ? 'on' : 'paused';
     const locale = settingsContent.querySelector('#setting-locale')?.value === 'zh-CN' ? 'zh-CN' : 'en';
+    const uiLocaleValue = settingsContent.querySelector('#setting-ui-locale')?.value === 'en' ? 'en' : 'zh-CN';
     try {
       const response = await fetch('/settings', {
-        method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ global_learning: global, lesson_locale: locale }),
+        method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+          global_learning: global,
+          lesson_locale: locale,
+          ui_locale: uiLocaleValue,
+          mascot_enabled: Boolean(settingsContent.querySelector('#setting-mascot')?.checked),
+          local_conversation_titles: Boolean(settingsContent.querySelector('#setting-local-titles')?.checked),
+        }),
       });
       if (!response.ok) throw new Error('Settings unavailable');
       applySettings(await response.json());
@@ -995,13 +1231,16 @@
       }
       settingsDialog.close?.();
       render();
-      showToast('Learning preferences saved.');
-    } catch { showToast('Osmosis could not save those preferences.'); }
+      showToast(t('saved'));
+    } catch { showToast(t('settings_error')); }
   }
 
   function applySettings(value) {
     if (!value || typeof value !== 'object') return;
     store.settings = { ...store.settings, ...value };
+    if (store.settings.local_conversation_titles !== true) store.conversationTitles.clear();
+    refreshStaticCopy();
+    void refreshConversationTitles();
     applyActivations(value.activation);
     applyActivations(value.activations);
     applyNotices(value.notices);
@@ -1009,7 +1248,7 @@
 
   function updateConnectionStatus(status) {
     if (status?.provider) provider = status.provider;
-    if (status?.state === 'failed') showToast('Osmosis could not make a lesson from that activity. It will wait for the next useful signal.');
+    if (status?.state === 'failed') showToast(uiLocale() === 'en' ? 'Osmosis could not make a lesson from that activity. It will wait for the next useful signal.' : '暂时无法从这条活动制作课程，会等待下一条有用活动。');
     renderConnection();
   }
 
@@ -1104,7 +1343,7 @@
       });
     }
     events.addEventListener('open', () => { connection.textContent = statusForActive(); connection.classList.add('live'); });
-    events.addEventListener('error', () => { connection.textContent = 'Reconnecting…'; connection.classList.remove('live'); });
+    events.addEventListener('error', () => { connection.textContent = t('connection_error'); connection.classList.remove('live'); });
   }
 
   document.querySelector('#activity-close').addEventListener('click', () => {

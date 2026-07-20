@@ -197,6 +197,39 @@ test('Ambient Watch offers an eligible event to the warmup fast path before norm
   assert.deepEqual(reports[1].stack_hints, ['npm']);
 });
 
+test('Ambient Watch keeps raw session context only on the private broker bridge', async (t) => {
+  const { projectDir, sessionsDir } = await setup(t);
+  const clock = { value: Date.now() };
+  const observations = [];
+  const canonicalProject = await fs.realpath(projectDir);
+  const watcher = createAmbientWatcher({
+    config: { ambientEnabled: true, cwd: projectDir, sessionsDir },
+    now: () => clock.value,
+    resolveProject: async () => ({ project_id: 'project-a-0123456789', root: canonicalProject }),
+    onReport() {},
+    onWarmupCandidate(observation) {
+      observations.push(observation);
+      return { handled: true };
+    },
+  });
+  t.after(() => watcher.stop());
+  await watcher.poll();
+  const rollout = await createRollout(sessionsDir, clock.value, { name: 'private-conversation' });
+  await appendEvents(rollout, clock.value, [
+    { type: 'session_meta', payload: { id: 'raw-session-should-not-persist' } },
+    { type: 'event_msg', payload: { type: 'user_message', message: '<script>private title</script> from Max' } },
+    execEvent('rg harbour src', projectDir),
+  ]);
+  await watcher.poll();
+  assert.equal(observations.length, 1);
+  const report = observations[0].report;
+  assert.match(report.__osmosis_local_conversation.session_id, /raw-session/);
+  assert.match(report.__osmosis_local_conversation.title, /private title/);
+  const publicShape = { ...report };
+  delete publicShape.__osmosis_local_conversation;
+  assert.doesNotMatch(JSON.stringify(publicShape), /raw-session|private title|script/);
+});
+
 test('Ambient Watch attaches existing files at EOF, emits sanitized cards, and paces each session', async (t) => {
   const { projectDir, sessionsDir } = await setup(t);
   const clock = { value: Date.now() };
