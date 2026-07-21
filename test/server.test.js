@@ -974,9 +974,9 @@ test('a correctly answered namespaced tree leaf, its receipt, and its card state
   );
 
   // The second process enters as a thin relay while the first owner is live.
-  // Once the owner stops, it must hydrate from disk before it accepts any new
-  // work; this is the exact historical stale-write window that used to lose
-  // answers before the owner-only broker gate existed.
+  // Once the owner stops, it must hydrate from disk before it accepts new
+  // work. This covers current handover durability only; it does not identify
+  // the specific cause of the historical answer regression.
   const secondary = startTrackedServer(cleanup, {
     cwd,
     port,

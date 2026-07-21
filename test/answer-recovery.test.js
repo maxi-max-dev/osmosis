@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const { spawn } = require('node:child_process');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
@@ -9,6 +10,8 @@ const test = require('node:test');
 const { createAnswerReceiptStore } = require('../lib/answer-receipt-store');
 const { manualReceiptFor, recoverAnswerReceipt } = require('../lib/answer-recovery');
 const { parseArgs } = require('../bin/osmosis-recover-answer');
+
+const RECOVERY_RUNNER = path.resolve(__dirname, '..', 'bin', 'osmosis-recover-answer.js');
 
 async function temporaryDirectory(t) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'osmosis-answer-recovery-'));
@@ -54,6 +57,25 @@ async function writeRecoverableProject(directory, value = receipt()) {
     }],
   }, null, 2)}\n`);
   return { profileDir, root };
+}
+
+function runRecoveryCli(profileDir, receiptId) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [
+      RECOVERY_RUNNER,
+      '--receipt', receiptId,
+      '--confirm',
+      '--profile-dir', profileDir,
+    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stderr = '';
+    let stdout = '';
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.once('error', reject);
+    child.once('close', (code, signal) => resolve({ code, signal, stderr, stdout }));
+  });
 }
 
 test('operator-confirmed recovery restores exactly one durable answer receipt without consulting a delivery ledger', async (t) => {
@@ -152,4 +174,32 @@ test('recovery refuses a delivery-ledger-only guess, but accepts one exact opera
     receiptId: null,
     strength: 2,
   });
+});
+
+test('two concurrent recovery CLIs take one receipt lease and append one restore record', async (t) => {
+  const directory = await temporaryDirectory(t);
+  const value = receipt();
+  const { profileDir, root } = await writeRecoverableProject(directory, value);
+  await createAnswerReceiptStore({ profileDir }).ensure(value);
+
+  const outcomes = await Promise.all([
+    runRecoveryCli(profileDir, value.receipt_id),
+    runRecoveryCli(profileDir, value.receipt_id),
+  ]);
+  const successes = outcomes.filter((outcome) => outcome.code === 0);
+  const refusals = outcomes.filter((outcome) => outcome.code !== 0);
+  assert.equal(successes.length, 1);
+  assert.equal(refusals.length, 1);
+  assert.match(refusals[0].stderr, /already been restored/);
+
+  const restores = (await fs.readFile(path.join(profileDir, 'receipts', 'restores.jsonl'), 'utf8'))
+    .split('\n')
+    .filter(Boolean)
+    .map(JSON.parse)
+    .filter((entry) => entry.receipt_id === value.receipt_id);
+  assert.equal(restores.length, 1, 'the receipt has exactly one durable consumed marker');
+  const profile = JSON.parse(await fs.readFile(path.join(profileDir, 'profile.json'), 'utf8'));
+  const cards = JSON.parse(await fs.readFile(path.join(root, '.osmosis', 'cards.json'), 'utf8'));
+  assert.equal(profile[value.concept_id].strength, 2);
+  assert.equal(cards.cards[0].state.answered, true);
 });

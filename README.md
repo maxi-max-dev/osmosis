@@ -88,7 +88,7 @@ Project summaries are persisted at `~/.osmosis/projects.json`. Per-project activ
 
 ## Answer integrity and deliberate recovery
 
-Every successful real-card answer now leaves an immutable, local answer receipt at `~/.osmosis/receipts/<project-id>.jsonl` (or under `OSMOSIS_PROFILE_DIR`). It contains only stable answer evidence: receipt id, project/card/concept ids, selected option, correctness, and resulting mastery/counter values. The server returns success only after the shared profile, the project card state, and this receipt are durable. Receipts are separate from the bounded six-state activity ledger, so an old activity/delivery entry is never treated as proof that somebody answered a card.
+Every successful real-card answer now leaves an immutable, local answer receipt at `~/.osmosis/receipts/<project-id>.jsonl` (or under `OSMOSIS_PROFILE_DIR`). It contains only stable answer evidence: receipt id, project/card/concept ids, selected option, correctness, and resulting mastery/counter values. The server returns success only after the shared profile, the project card state, and this receipt are durable. Receipts are separate from the bounded six-state activity ledger, so an old activity/delivery entry is never treated as proof that somebody answered a card. The specific cause of the pre-receipt historical regression remains undetermined; the safeguards and recovery path are evidence-based rather than an attribution or automatic backfill.
 
 For a confirmed historical regression, stop **every** Osmosis wall/relay process first. Inspect the exact receipt and obtain operator approval, then run this one-time, receipt-only restore from the cloned repository root:
 

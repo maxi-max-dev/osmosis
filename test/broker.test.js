@@ -357,7 +357,7 @@ test('a durable Studio candidate resumes after the broker hydrates it on restart
 
   const interruptedReport = { ...report('Restart-safe Studio candidate'), report_id: 'restart-safe-candidate' };
   assert.equal(await brokerBeforeRestart.acceptLocalReport(interruptedReport, projectId), true);
-  await waitFor(() => providerStarted, 'the first provider request to begin');
+  await waitFor(() => providerStarted, 'the first provider request to begin', 2_000);
 
   const cardsPath = path.join(root, '.osmosis', 'cards.json');
   const durableCandidate = await waitFor(async () => {
