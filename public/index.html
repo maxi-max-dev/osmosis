@@ -16,9 +16,10 @@
         </a>
         <div class="trail-heading">
           <p class="eyebrow" data-i18n="studio_label">学习工作台</p>
-          <h1 id="trail-title" data-i18n="trail_title">你的学习轨迹</h1>
-          <p class="trail-intro" data-i18n="trail_intro">工作里浮现过的想法，会安静地留在这里；这不是一门需要赶进度的课。</p>
+          <h1 id="trail-title" data-i18n="trail_title">你的理解地图</h1>
+          <p class="trail-intro" data-i18n="trail_intro">记录智能体在项目中浮现的概念，以及你已经证明理解的部分。</p>
         </div>
+        <section class="map-coverage" id="map-coverage" aria-live="polite" hidden></section>
         <ol class="learning-trail" id="learning-trail" aria-live="polite"></ol>
         <div class="trail-footer">
           <button class="text-button" id="review-button" type="button"><span data-i18n="review_lessons">复习学过的课</span> <span aria-hidden="true">→</span></button>
@@ -87,6 +88,7 @@
     <footer class="mode-footer" id="mode-footer">本地 · 实时</footer>
     <script src="/project-state.js"></script>
     <script src="/project-labels.js"></script>
+    <script src="/map-coverage.js"></script>
     <script src="/studio-state.js"></script>
     <script src="/mascot.js"></script>
     <script src="/app.js"></script>

@@ -69,7 +69,7 @@ test('self-hosted three stays below the 200 KiB gzip budget and carries its lice
   assert.match(fs.readFileSync(path.join(__dirname, '..', 'public', 'mascot.js'), 'utf8'), /import\('\/vendor\/three\.module\.min\.js'\)/);
 });
 
-test('the wall serves the mascot, self-hosted three, and its license from STATIC_FILES', async (t) => {
+test('the wall serves the client helpers, mascot, self-hosted three, and its license from STATIC_FILES', async (t) => {
   const handler = createHttpHandler({
     config: { publicDir: path.join(__dirname, '..', 'public') },
     hub: { connect() {} },
@@ -82,11 +82,15 @@ test('the wall serves the mascot, self-hosted three, and its license from STATIC
   });
   t.after(() => new Promise((resolve) => server.close(resolve)));
   const { port } = server.address();
-  const [mascot, three, license] = await Promise.all([
+  const [coverage, mascot, three, license] = await Promise.all([
+    fetch(`http://127.0.0.1:${port}/map-coverage.js`),
     fetch(`http://127.0.0.1:${port}/mascot.js`),
     fetch(`http://127.0.0.1:${port}/vendor/three.module.min.js`),
     fetch(`http://127.0.0.1:${port}/vendor/THREE-LICENSE`),
   ]);
+  assert.equal(coverage.status, 200);
+  assert.match(coverage.headers.get('content-type'), /javascript/);
+  assert.match(await coverage.text(), /deriveMapCoverage/);
   assert.equal(mascot.status, 200);
   assert.match(mascot.headers.get('content-type'), /javascript/);
   assert.equal(three.status, 200);

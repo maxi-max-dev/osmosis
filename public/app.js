@@ -3,6 +3,7 @@
 
   const projectState = window.OsmosisProjectState;
   const projectLabels = window.OsmosisProjectLabels;
+  const mapCoverage = window.OsmosisMapCoverage;
   const studioState = window.OsmosisStudioState;
 
   const store = {
@@ -30,6 +31,7 @@
   const cardStage = document.querySelector('#studio-stage');
   const trail = document.querySelector('#learning-trail');
   const trailNote = document.querySelector('#trail-note');
+  const mapCoveragePanel = document.querySelector('#map-coverage');
   const toast = document.querySelector('#toast');
   const connection = document.querySelector('#connection');
   const modeFooter = document.querySelector('#mode-footer');
@@ -82,8 +84,9 @@
       local_titles: '显示本地对话标题', local_titles_copy: '默认关闭；开启后只在本机保存简短标题，可随时关闭并清除。',
       active_conversation: '当前对话：{title}',
       archived_tabs: '已归档项目', close_activity: '关闭活动', close_settings: '关闭设置',
-      preferences: '学习偏好', project_activity_drawer: '项目活动', project_channels: '项目频道', trail_intro: '工作里浮现过的想法，会安静地留在这里；这不是一门需要赶进度的课。',
-      trail_title: '你的学习轨迹', studio_label: '学习工作台', studio_title: '一次只学一件有用的事。', while_agent_works: '趁智能体在工作',
+      map_coverage: '项目理解地图覆盖', map_coverage_aria: '项目理解地图覆盖：共 {total} 个可出题概念，已掌握 {mastered} 个，已浮现 {surfaced} 个，待浮现 {waiting} 个。', map_mastered: '已掌握 {count}', map_surfaced: '已浮现 {count}', map_total: '共 {count} 个', map_waiting: '待浮现 {count}',
+      preferences: '学习偏好', project_activity_drawer: '项目活动', project_channels: '项目频道', trail_intro: '记录智能体在项目中浮现的概念，以及你已经证明理解的部分。',
+      trail_title: '你的理解地图', studio_label: '学习工作台', studio_title: '一次只学一件有用的事。', while_agent_works: '趁智能体在工作',
     },
     en: {
       activity: 'Activity', agent: 'Reported by agent', agent_copy: 'Your agent reported a milestone.',
@@ -120,8 +123,9 @@
       local_titles: 'Show local conversation titles', local_titles_copy: 'Off by default; when enabled, short titles stay only on this device and clear when turned off.',
       active_conversation: 'Active conversation: {title}',
       archived_tabs: 'Archived projects', close_activity: 'Close activity', close_settings: 'Close settings',
-      preferences: 'Learning preferences', project_activity_drawer: 'Project activity', project_channels: 'Project channels', trail_intro: 'Ideas that surface while you work can rest quietly here; this is not a course you need to rush through.',
-      trail_title: 'Your learning trail', studio_label: 'Learning Studio', studio_title: 'Learn one useful thing at a time.', while_agent_works: 'While your agent works',
+      map_coverage: 'Project map coverage', map_coverage_aria: 'Project map coverage: {total} card-generating concepts, {mastered} mastered, {surfaced} surfaced, and {waiting} remaining.', map_mastered: '{count} mastered', map_surfaced: '{count} surfaced', map_total: '{count} total', map_waiting: '{count} remaining',
+      preferences: 'Learning preferences', project_activity_drawer: 'Project activity', project_channels: 'Project channels', trail_intro: 'A living map of the project concepts your AI surfaces—and what you have demonstrated you understand.',
+      trail_title: 'Your understanding map', studio_label: 'Learning Studio', studio_title: 'Learn one useful thing at a time.', while_agent_works: 'While your agent works',
     },
   };
 
@@ -512,10 +516,35 @@
   }
 
   function strengthFor(conceptId) {
-    const direct = Number(store.strengths?.[conceptId]?.strength || 0);
-    if (direct) return direct;
-    const local = typeof conceptId === 'string' && conceptId.includes(':') ? conceptId.split(':').at(-1) : '';
-    return Number(store.strengths?.[local]?.strength || 0);
+    return mapCoverage?.strengthFor?.(store.strengths, conceptId) || 0;
+  }
+
+  function coverageSegment(kind, count) {
+    if (!Number.isInteger(count) || count <= 0) return '';
+    return `<span class="map-coverage-segment map-coverage-segment--${kind}" style="--segment:${count}" aria-hidden="true"></span>`;
+  }
+
+  function renderMapCoverage() {
+    const project = activeProject();
+    const activation = project ? activationFor(project.project_id) : null;
+    const coverage = project && mapCoverage?.deriveMapCoverage
+      ? mapCoverage.deriveMapCoverage({
+        cards: project.cards,
+        strengths: store.strengths,
+        studio: project.studio,
+        tree: project.tree,
+      })
+      : null;
+    const visible = mapCoverage?.isVisibleCoverage?.(activation, coverage) === true;
+    mapCoveragePanel.hidden = !visible;
+    if (!visible) {
+      mapCoveragePanel.innerHTML = '';
+      return;
+    }
+    mapCoveragePanel.setAttribute('aria-label', t('map_coverage_aria', coverage));
+    mapCoveragePanel.innerHTML = `<div class="map-coverage-head"><p class="map-coverage-label">${escapeHtml(t('map_coverage'))}</p><span class="map-coverage-total">${escapeHtml(t('map_total', { count: coverage.total }))}</span></div>
+      <div class="map-coverage-bar" role="img" aria-label="${escapeHtml(t('map_coverage_aria', coverage))}">${coverageSegment('mastered', coverage.mastered)}${coverageSegment('surfaced', coverage.surfaced)}${coverageSegment('waiting', coverage.waiting)}</div>
+      <p class="map-coverage-counts"><span class="map-coverage-count--mastered">${escapeHtml(t('map_mastered', { count: coverage.mastered }))}</span><span class="map-coverage-divider" aria-hidden="true">·</span><span class="map-coverage-count--surfaced">${escapeHtml(t('map_surfaced', { count: coverage.surfaced }))}</span><span class="map-coverage-divider" aria-hidden="true">·</span><span class="map-coverage-count--waiting">${escapeHtml(t('map_waiting', { count: coverage.waiting }))}</span></p>`;
   }
 
   function trailItem(card, active) {
@@ -860,6 +889,7 @@
     renderConnection();
     renderPipeline();
     renderActiveConversation();
+    renderMapCoverage();
     renderTrail();
     renderNav();
     renderStage();
@@ -1301,6 +1331,13 @@
       applyStudio(projectId, payload);
     } else if (type === 'strength') {
       if (payload.concept_id) store.strengths[payload.concept_id] = { ...(store.strengths[payload.concept_id] || {}), strength: payload.strength };
+    } else if (type === 'tree') {
+      if (Array.isArray(payload.nodes)) {
+        project.tree = {
+          meta: payload.meta && typeof payload.meta === 'object' && !Array.isArray(payload.meta) ? payload.meta : {},
+          nodes: payload.nodes,
+        };
+      }
     } else if (type === 'status') {
       project.activities.push({ ...payload, state: payload.state || 'observed', ts: new Date().toISOString() });
       project.activities = project.activities.slice(-100);
@@ -1401,11 +1438,15 @@
   if (window.__OSMOSIS_APP_TEST_HOOKS__ === true) {
     window.__OsmosisAppTest = Object.freeze({
       applySettings,
+      applyProjectEvent,
+      applySnapshot,
       celebrateCorrectAnswer,
       progressMarkup,
+      renderMapCoverage,
       renderPipeline,
       renderWarmupNow,
       store,
+      strengthFor,
       submitAnswer,
     });
   }

@@ -21,6 +21,9 @@
   --blue-soft: #e3efff;
   --gold: #c9972e;
   --gold-soft: #fff1c9;
+  --map-coverage-mastered-copy: #6c4300;
+  --map-coverage-surfaced-copy: #2d4c43;
+  --map-coverage-waiting-copy: #53615b;
   --green: #2d9a66;
   --green-soft: #e2f7e9;
   --red: #c8535e;
@@ -52,6 +55,10 @@ h1, h2, h3 { color: var(--ink-strong); letter-spacing: 0; text-wrap: balance; }
 .eyebrow, .card-kicker, .settings-label { color: var(--teal); font-size: .68rem; font-weight: 850; letter-spacing: .1em; margin: 0 0 9px; text-transform: uppercase; }
 .trail-heading h1 { font-size: clamp(1.8rem, 2.6vw, 2.45rem); line-height: 1.12; margin-bottom: 14px; }
 .trail-intro, .trail-footer p, .waiting-card > p, .activation-card > p, .settings-copy { color: var(--muted); font-size: .9rem; line-height: 1.68; }
+.map-coverage { border-top: 1px solid var(--line); display: grid; gap: 10px; margin-top: 25px; padding-top: 19px; }.map-coverage[hidden] { display: none; }
+.map-coverage-head { align-items: baseline; display: flex; gap: 12px; justify-content: space-between; }.map-coverage-label { color: var(--ink-strong); font-size: .76rem; font-weight: 840; letter-spacing: -.01em; margin: 0; }.map-coverage-total { color: var(--ink); font-size: .72rem; font-weight: 830; white-space: nowrap; }
+.map-coverage-bar { background: var(--surface); border: 1px solid var(--line-strong); border-radius: 999px; display: flex; gap: 2px; height: 10px; overflow: hidden; padding: 1px; }.map-coverage-segment { flex: var(--segment) 1 0%; min-width: 0; }.map-coverage-segment--mastered { background: var(--gold); border-radius: 999px; }.map-coverage-segment--surfaced { background: #8eaaa0; }.map-coverage-segment--waiting { background: var(--line-strong); border-radius: 999px; }
+.map-coverage-counts { display: flex; flex-wrap: wrap; font-size: .68rem; font-weight: 780; gap: 5px 8px; line-height: 1.45; }.map-coverage-count--mastered { color: var(--map-coverage-mastered-copy); }.map-coverage-count--surfaced { color: var(--map-coverage-surfaced-copy); }.map-coverage-count--waiting { color: var(--map-coverage-waiting-copy); }.map-coverage-divider { color: var(--map-coverage-waiting-copy); }
 .learning-trail { display: grid; gap: 4px; list-style: none; margin: 42px 0 28px; padding: 0; }
 .trail-item { align-items: center; display: grid; gap: 12px; grid-template-columns: 14px minmax(0, 1fr); min-height: 48px; position: relative; }
 .trail-item::after { background: var(--line-strong); content: ''; height: 29px; left: 6px; position: absolute; top: 35px; width: 2px; }
