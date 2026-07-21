@@ -86,6 +86,26 @@ The relay performs a local registration handshake before forwarding a report. It
 
 Project summaries are persisted at `~/.osmosis/projects.json`. Per-project activity traces are durable, bounded JSONL files at `~/.osmosis/ledger/<project-id>.jsonl`; they explain whether a report was accepted, waiting, skipped, failed, or delivered. Archive hides an old project from the main tab rail without deleting its state; a restore control keeps it recoverable, and dormant channels automatically collapse into the archived group after 30 days. New activity unarchives a channel with a ready badge but never steals the active tab.
 
+## Answer integrity and deliberate recovery
+
+Every successful real-card answer now leaves an immutable, local answer receipt at `~/.osmosis/receipts/<project-id>.jsonl` (or under `OSMOSIS_PROFILE_DIR`). It contains only stable answer evidence: receipt id, project/card/concept ids, selected option, correctness, and resulting mastery/counter values. The server returns success only after the shared profile, the project card state, and this receipt are durable. Receipts are separate from the bounded six-state activity ledger, so an old activity/delivery entry is never treated as proof that somebody answered a card.
+
+For a confirmed historical regression, stop **every** Osmosis wall/relay process first. Inspect the exact receipt and obtain operator approval, then run this one-time, receipt-only restore from the cloned repository root:
+
+```bash
+node bin/osmosis-recover-answer.js --receipt <receipt-id> --confirm
+```
+
+Answers from before receipts existed require a separate, fully specified historical declaration after Max has reviewed the evidence. It is still not a ledger backfill: the operator must state the exact ids and outcome, then explicitly confirm it:
+
+```bash
+node bin/osmosis-recover-answer.js \
+  --manual --project <project-id> --card <card-id> --concept <concept-id> \
+  --chosen-index <0-2> --correct --strength 2 --confirm
+```
+
+Set `OSMOSIS_PROFILE_DIR` (or pass `--profile-dir <directory>`) for an isolated profile. Both paths verify the exact registered project plus card/concept ids, refuse conflicting current answers, restore monotonic profile strength, persist the reviewed evidence as an immutable receipt, and record that the receipt was consumed so it cannot be applied twice. Neither path guesses from a delivery ledger, runs automatically, or should be used before the historical evidence has been reviewed.
+
 ## Learning Studio (Stage 1)
 
 The browser wall is now a focused Learning Studio: one **Now** question, a quiet prepared **Next** lesson, and a review trail of lessons you have already answered. Project tabs keep their own learning trail and ready badge; changing a tab is always your choice, and each channel can be deep-linked from the URL. Optional auto-advance only moves forward when a prepared next lesson exists, pauses when you interact, and never removes the **Next** control.

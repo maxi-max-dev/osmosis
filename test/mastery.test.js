@@ -33,7 +33,7 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-function createHarness({ cards, strengths }) {
+function createHarness({ cards, strengths, answerReceiptStore = null, projectId = 'project-0123456789' }) {
   const state = {
     cards,
     strengths,
@@ -56,7 +56,14 @@ function createHarness({ cards, strengths }) {
     },
   };
   const cardService = createCardService({ state, hub, persistence });
-  const answerService = createAnswerService({ state, hub, persistence, cardService });
+  const answerService = createAnswerService({
+    answerReceiptStore,
+    cardService,
+    hub,
+    persistence,
+    projectId,
+    state,
+  });
 
   return { answerService, cardService, events, savedCards, savedProfiles, state };
 }
@@ -156,6 +163,54 @@ test('a correct answer removes same-concept pending cards and queued reviews', a
   await harness.cardService.deliver(runtimeCard('other-one', 'sse', 'Server-sent events'));
   await harness.cardService.deliver(runtimeCard('other-two', 'dom', 'The document tree'));
   assert.equal(harness.state.cards.filter((card) => card.concept_id === 'feedback-loop').length, 1);
+});
+
+test('a successful answer has one immutable receipt, and a retry completes the same receipt after a final append failure', async () => {
+  const card = runtimeCard('receipt-card');
+  const receipts = [];
+  let attempts = 0;
+  const harness = createHarness({
+    cards: [card],
+    strengths: {},
+    answerReceiptStore: {
+      async ensure(receipt) {
+        attempts += 1;
+        receipts.push(clone(receipt));
+        if (attempts === 1) throw new Error('temporary receipt storage failure');
+        return receipt;
+      },
+    },
+    projectId: 'project-0123456789',
+  });
+
+  await assert.rejects(
+    harness.answerService.answer({ card_id: card.card_id, chosen_index: 0 }),
+    /temporary receipt storage failure/,
+  );
+  assert.equal(card.state.answered, true, 'the answer state is durable before the receipt retry');
+  const receiptId = card.answer_receipt.receipt_id;
+  const result = await harness.answerService.answer({ card_id: card.card_id, chosen_index: 0 });
+
+  assert.equal(result.strength, 2);
+  assert.equal(attempts, 2);
+  assert.equal(receipts[0].receipt_id, receiptId);
+  assert.equal(receipts[1].receipt_id, receiptId, 'a retry reuses the stable evidence id');
+  assert.deepEqual(
+    receipts.at(-1),
+    {
+      answered_at: card.answer_receipt.answered_at,
+      card_id: card.card_id,
+      chosen_index: 0,
+      concept_id: 'feedback-loop',
+      concept_name: 'The feedback loop',
+      correct: true,
+      project_id: 'project-0123456789',
+      receipt_id: receiptId,
+      resulting_correct: 1,
+      resulting_seen: 1,
+      resulting_strength: 2,
+    },
+  );
 });
 
 test('a queued review is checked again before delivery when mastery changes', async () => {

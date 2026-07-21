@@ -915,6 +915,97 @@ test('a same-project port takeover reloads cards and mastery before writing agai
   assert.equal(profile['feedback-loop'].seen, 2);
 });
 
+test('a correctly answered namespaced tree leaf, its receipt, and its card state survive owner restart and relay takeover', { timeout: 15_000 }, async (t) => {
+  const cleanup = createTestCleanup(t);
+  const cwd = await temporaryProject(cleanup);
+  const profileDir = path.join(cwd, 'profile');
+  const codexCommand = await writeCodexShim(cwd);
+  const { runner: primary, port } = await startHttpServer(cleanup, {
+    cwd,
+    extraEnv: {
+      OSMOSIS_CODEX_COMMAND: codexCommand,
+      OSMOSIS_PORT_RETRY_MS: '50',
+      OSMOSIS_PROFILE_DIR: profileDir,
+      OSMOSIS_PROVIDER: 'codex',
+      OSMOSIS_TEMPLATE_DELAY_MS: '60000',
+    },
+  });
+  const stream = await openTrackedEvents(cleanup, port);
+  assert.equal((await stream.nextEvent()).type, 'snapshot');
+
+  primary.child.stdin.write(
+    `${JSON.stringify(reportMessage(1, 'Namespaced answer', 'Created one real tree-leaf lesson before owner handover.'))}\n`,
+  );
+  await waitFor(() => primary.stdoutLines().length === 1, 'the namespaced report acknowledgement');
+  const card = (await nextEventOfType(stream, 'card')).data;
+  assert.match(card.concept_id, /:http$/, 'the generated tree leaf is project-namespaced');
+
+  const answered = await fetch(`http://127.0.0.1:${port}/answer`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ card_id: card.card_id, chosen_index: 0 }),
+  });
+  assert.equal(answered.status, 200);
+  assert.equal((await answered.json()).strength, 2);
+
+  const identity = await resolveProjectIdentity(cwd);
+  const receiptPath = path.join(profileDir, 'receipts', `${identity.project_id}.jsonl`);
+  const receipt = await waitFor(async () => {
+    const lines = await fs.readFile(receiptPath, 'utf8').catch((error) => error?.code === 'ENOENT' ? '' : Promise.reject(error));
+    return lines.split('\n').filter(Boolean).map(JSON.parse).find((entry) => entry.card_id === card.card_id) || null;
+  }, 'the durable answer receipt');
+  assert.deepEqual(
+    {
+      card_id: receipt.card_id,
+      chosen_index: receipt.chosen_index,
+      concept_id: receipt.concept_id,
+      correct: receipt.correct,
+      project_id: receipt.project_id,
+      resulting_strength: receipt.resulting_strength,
+    },
+    {
+      card_id: card.card_id,
+      chosen_index: 0,
+      concept_id: card.concept_id,
+      correct: true,
+      project_id: identity.project_id,
+      resulting_strength: 2,
+    },
+  );
+
+  // The second process enters as a thin relay while the first owner is live.
+  // Once the owner stops, it must hydrate from disk before it accepts any new
+  // work; this is the exact historical stale-write window that used to lose
+  // answers before the owner-only broker gate existed.
+  const secondary = startTrackedServer(cleanup, {
+    cwd,
+    port,
+    extraEnv: {
+      OSMOSIS_CODEX_COMMAND: codexCommand,
+      OSMOSIS_PORT_RETRY_MS: '50',
+      OSMOSIS_PROFILE_DIR: profileDir,
+      OSMOSIS_PROVIDER: 'codex',
+      OSMOSIS_TEMPLATE_DELAY_MS: '60000',
+    },
+  });
+  await waitFor(() => secondary.stderr().includes('HTTP disabled'), 'the same-project thin relay');
+  await stopServer(primary);
+  await waitFor(() => listeningPort(secondary) === port, 'the relay takeover listener');
+  await waitFor(() => health(port), 'the relay takeover health endpoint');
+
+  const snapshot = await (await fetch(`http://127.0.0.1:${port}/projects/${encodeURIComponent(identity.project_id)}/snapshot`)).json();
+  const restoredCard = snapshot.cards.find((item) => item.card_id === card.card_id);
+  assert.equal(restoredCard.state.answered, true);
+  assert.equal(restoredCard.state.correct, true);
+  assert.equal(snapshot.strengths[card.concept_id].strength, 2);
+  const diskCards = JSON.parse(await fs.readFile(path.join(cwd, '.osmosis', 'cards.json'), 'utf8'));
+  const diskCard = diskCards.cards.find((item) => item.card_id === card.card_id);
+  assert.equal(diskCard.state.answered, true);
+  assert.equal(diskCard.answer_receipt.receipt_id, receipt.receipt_id);
+  const profile = JSON.parse(await fs.readFile(path.join(profileDir, 'profile.json'), 'utf8'));
+  assert.equal(profile[card.concept_id].strength, 2);
+});
+
 test('one HTTP owner exclusively resumes a persisted Studio generation while two same-project relays stay thin across takeover', { timeout: 20_000 }, async (t) => {
   const cleanup = createTestCleanup(t);
   const cwd = await temporaryProject(cleanup);
