@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const { createHash } = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -100,6 +101,60 @@ test('the warmup catalog is a valid Chinese fixed library with at least twenty c
       }
     }
   }
+});
+
+test('the built-in warmup catalog has complete English variants with locale-stable answers', () => {
+  const requiredFields = ['title', 'lesson', 'question', 'options', 'explanation'];
+  assert.equal(WARMUP_CATALOG.concepts.length, 33);
+  assert.equal(WARMUP_CATALOG.concepts.filter((concept) => concept.en).length, 33);
+
+  for (const concept of WARMUP_CATALOG.concepts) {
+    assert.deepEqual(Object.keys(concept.en).sort(), [...requiredFields].sort(), `${concept.concept_id} has exactly the English copy fields`);
+    const englishCopy = [concept.en.title, concept.en.lesson, concept.en.question, ...concept.en.options, concept.en.explanation];
+    assert.equal(concept.en.options.length, 3, `${concept.concept_id} has three English options`);
+    assert.equal(new Set(concept.en.options).size, 3, `${concept.concept_id} has unique English options`);
+    for (const text of englishCopy) {
+      assert.equal(typeof text, 'string');
+      assert.notEqual(text.trim(), '');
+      assert.doesNotMatch(text, /[\u3400-\u9fff]/u, `${concept.concept_id} English copy contains no Chinese residue`);
+    }
+
+    const match = { concept, trigger: { type: 'test' } };
+    const zh = makeWarmupCandidate(match, { lesson_locale: 'zh-CN' });
+    const en = makeWarmupCandidate(match, { lesson_locale: 'en' });
+    assert.equal(en.correct_index, zh.correct_index, `${concept.concept_id} keeps the same teaching conclusion`);
+    assert.deepEqual(en.options, concept.en.options, `${concept.concept_id} preserves the English option order at selection`);
+    assert.deepEqual(zh.options, concept.options, `${concept.concept_id} preserves the Chinese option order at selection`);
+  }
+});
+
+test('base catalog validation permits untranslated custom variants and falls back to Chinese', () => {
+  const legacy = JSON.parse(JSON.stringify(WARMUP_CATALOG));
+  delete legacy.concepts[0].en;
+  assert.equal(validateWarmupCatalog(legacy).valid, true, 'a legacy or custom catalog may omit English copy');
+
+  const incomplete = JSON.parse(JSON.stringify(WARMUP_CATALOG));
+  incomplete.concepts[0].en = { title: 'Partial translation' };
+  assert.equal(validateWarmupCatalog(incomplete).valid, true, 'an incomplete custom translation remains eligible for the canonical fallback');
+
+  const event = execEvent(JSON.stringify({ cmd: 'rg --files' }));
+  for (const catalog of [legacy, incomplete]) {
+    const result = qualifyWarmupEvent({ catalog, event, lesson_locale: 'en' });
+    assert.equal(result.qualified, true);
+    assert.equal(result.candidate.title, catalog.concepts[0].title);
+    assert.deepEqual(result.candidate.options, catalog.concepts[0].options);
+  }
+});
+
+test('English catalog additions cannot change warmup matching semantics', () => {
+  const matchingSemantics = WARMUP_CATALOG.concepts.map(({ concept_id, aliases, triggers, correct_index }) => ({
+    aliases,
+    concept_id,
+    correct_index,
+    triggers,
+  }));
+  const digest = createHash('sha256').update(JSON.stringify(matchingSemantics)).digest('hex');
+  assert.equal(digest, '31d2bc7e62bcc4ceebad89d43c6af28cfaaad321e773ddd7a53dc9b164d025eb');
 });
 
 test('warmup exec matching uses the first parsed argv and never guesses from shell text', () => {

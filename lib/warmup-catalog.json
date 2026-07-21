@@ -25,7 +25,18 @@
         "把所有文件打包成一个新项目。"
       ],
       "correct_index": 0,
-      "explanation": "对。`rg` 的职责是搜索和定位；是否修改、如何修改，仍要由后续步骤决定。"
+      "explanation": "对。`rg` 的职责是搜索和定位；是否修改、如何修改，仍要由后续步骤决定。",
+      "en": {
+        "title": "Find code quickly with `rg`",
+        "lesson": "`rg` searches project files for matching text. It is like an assistant who knows where the filing cabinets are: it points to relevant places before you decide which page to open. That means you do not need to search the whole project from memory.",
+        "question": "What does running `rg` help with most directly?",
+        "options": [
+          "Find likely relevant places, then decide what to inspect.",
+          "Automatically change every result it finds.",
+          "Package every file into a new project."
+        ],
+        "explanation": "Correct. `rg` searches and locates; later steps still decide whether and how to change anything."
+      }
     },
     {
       "concept_id": "node-test-runner",
@@ -52,7 +63,18 @@
         "把所有测试内容翻译成另一种语言。"
       ],
       "correct_index": 0,
-      "explanation": "对。测试把重要预期写成可重复的检查，修改后能迅速确认它们是否还成立。"
+      "explanation": "对。测试把重要预期写成可重复的检查，修改后能迅速确认它们是否还成立。",
+      "en": {
+        "title": "Use `node --test` to check behavior",
+        "lesson": "`node --test` checks program behavior against small questions written in advance. It is like a checklist before leaving home: it does not prove everything is perfect, but it can quickly reveal when a known promise was broken.",
+        "question": "What is `node --test` most like?",
+        "options": [
+          "Checking whether important behavior still holds against a checklist.",
+          "Automatically publishing the project for everyone.",
+          "Translating every test into another language."
+        ],
+        "explanation": "Correct. Tests turn important expectations into repeatable checks, so a change can be checked quickly."
+      }
     },
     {
       "concept_id": "package-install",
@@ -86,7 +108,18 @@
         "把当前代码永久锁定不能再改。"
       ],
       "correct_index": 0,
-      "explanation": "对。依赖安装是在准备工具和版本，而不是替代设计、调试或提交代码。"
+      "explanation": "对。依赖安装是在准备工具和版本，而不是替代设计、调试或提交代码。",
+      "en": {
+        "title": "Prepare project dependencies with `npm`",
+        "lesson": "A project lists the tools it needs to borrow. `npm` prepares suitable versions locally from that list, like gathering ingredients from a recipe before cooking. It does not decide how the dish should be made.",
+        "question": "What is dependency installation mainly doing?",
+        "options": [
+          "Preparing the tools needed to run and develop the project from its list.",
+          "Automatically fixing every problem in the project.",
+          "Permanently locking the current code so it cannot change."
+        ],
+        "explanation": "Correct. Installing dependencies prepares tools and versions; it does not replace design, debugging, or committing code."
+      }
     },
     {
       "concept_id": "package-script",
@@ -112,7 +145,18 @@
         "让程序不再需要测试。"
       ],
       "correct_index": 0,
-      "explanation": "对。脚本把重复流程固定下来，团队成员和自动化工具都能使用相同入口。"
+      "explanation": "对。脚本把重复流程固定下来，团队成员和自动化工具都能使用相同入口。",
+      "en": {
+        "title": "Reuse project workflows with `npm run`",
+        "lesson": "`npm run` gives common operations shared names. It is like a preset button in a kitchen: pressing the same button runs the same steps for everyone, reducing drift from verbal instructions and manual typing.",
+        "question": "What is the main value of a project script?",
+        "options": [
+          "It runs repeated work in a consistent way.",
+          "It means no command ever needs configuration.",
+          "It means the program no longer needs tests."
+        ],
+        "explanation": "Correct. Scripts standardize repeated workflows so people and automation use the same entry point."
+      }
     },
     {
       "concept_id": "git-status",
@@ -138,7 +182,18 @@
         "下一次发布会在什么时候发生。"
       ],
       "correct_index": 0,
-      "explanation": "对。它提供工作区状态，不会替人判断代码质量或安排发布。"
+      "explanation": "对。它提供工作区状态，不会替人判断代码质量或安排发布。",
+      "en": {
+        "title": "See change status with `git status`",
+        "lesson": "`git status` is like an inventory before packing: what was just added, what is still unpacked, and what is ready to hand over. It changes nothing; it only tells you the current state.",
+        "question": "What question is `git status` best suited to answer?",
+        "options": [
+          "What has changed now, and how far along each change is.",
+          "Which change definitely has no errors.",
+          "When the next release will happen."
+        ],
+        "explanation": "Correct. It reports working-tree state; it does not judge code quality or schedule a release."
+      }
     },
     {
       "concept_id": "git-diff",
@@ -164,7 +219,18 @@
         "能把所有旧版本立即删除。"
       ],
       "correct_index": 0,
-      "explanation": "对。差异视图缩小了检查范围，但仍需要人或测试判断改动是否正确。"
+      "explanation": "对。差异视图缩小了检查范围，但仍需要人或测试判断改动是否正确。",
+      "en": {
+        "title": "Compare what changed with `git diff`",
+        "lesson": "`git diff` compares before and after side by side, like the addition and deletion marks in a proofread draft. It focuses attention on the change itself instead of making you reread everything.",
+        "question": "Why is reviewing a diff useful before committing?",
+        "options": [
+          "It focuses review on the parts that actually changed.",
+          "It makes changes pass tests automatically.",
+          "It immediately deletes every older version."
+        ],
+        "explanation": "Correct. A diff narrows the review surface, but people or tests still judge whether the change is right."
+      }
     },
     {
       "concept_id": "git-commit",
@@ -190,7 +256,18 @@
         "让其他改动从此无法发生。"
       ],
       "correct_index": 0,
-      "explanation": "对。提交提供历史和边界；发布、协作和后续修改仍是独立步骤。"
+      "explanation": "对。提交提供历史和边界；发布、协作和后续修改仍是独立步骤。",
+      "en": {
+        "title": "Create a traceable record with `git commit`",
+        "lesson": "`git commit` records a selected group of changes as a documented save point. It is like putting a date and label on one finished piece of work so you can later understand why it changed.",
+        "question": "What is the most important role of a commit?",
+        "options": [
+          "Save related changes as a traceable record.",
+          "Deploy the program to production automatically.",
+          "Prevent any future changes from happening."
+        ],
+        "explanation": "Correct. A commit provides history and a boundary; release, collaboration, and later edits are separate steps."
+      }
     },
     {
       "concept_id": "git-branch-switch",
@@ -223,7 +300,18 @@
         "项目需要使用版本控制。"
       ],
       "correct_index": 0,
-      "explanation": "对。分支帮助隔离不同方向的工作，同时仍保留共同的历史基础。"
+      "explanation": "对。分支帮助隔离不同方向的工作，同时仍保留共同的历史基础。",
+      "en": {
+        "title": "Switch branches to separate lines of work",
+        "lesson": "Branches are like different transparent layers on the same map. Switching branches lets you inspect or continue another line of work without mixing two routes that are not yet organized together.",
+        "question": "What does switching branches mainly help avoid?",
+        "options": [
+          "Mixing unfinished changes from different lines of work together.",
+          "Anyone ever seeing the history again.",
+          "The project needing version control."
+        ],
+        "explanation": "Correct. Branches isolate work in different directions while preserving their shared history."
+      }
     },
     {
       "concept_id": "file-watching",
@@ -250,7 +338,18 @@
         "每次提交前查看历史。"
       ],
       "correct_index": 0,
-      "explanation": "对。监听模式自动响应变化；它不会代替对结果的判断。"
+      "explanation": "对。监听模式自动响应变化；它不会代替对结果的判断。",
+      "en": {
+        "title": "Follow file changes with `node --watch`",
+        "lesson": "`node --watch` notices when selected files change and restarts related work. It is like an attendant who checks again when a bell rings instead of needing a person to remind them after every edit.",
+        "question": "What repetition does watch mode reduce?",
+        "options": [
+          "Manually restarting the same check after every edit.",
+          "Writing tests before every edit.",
+          "Reviewing history before every commit."
+        ],
+        "explanation": "Correct. Watch mode responds to changes automatically; it does not replace judging the result."
+      }
     },
     {
       "concept_id": "code-linting",
@@ -285,7 +384,18 @@
         "线上环境一定发生过的故障。"
       ],
       "correct_index": 0,
-      "explanation": "对。静态检查覆盖的是可从代码形状判断的一部分问题，功能验证仍然重要。"
+      "explanation": "对。静态检查覆盖的是可从代码形状判断的一部分问题，功能验证仍然重要。",
+      "en": {
+        "title": "Use static checks to catch common issues early",
+        "lesson": "Static checks inspect structure and common conventions before a program runs. They are like a format reviewer before a submission: they catch many low-cost issues, but they do not replace checking real behavior.",
+        "question": "What kind of issue are static checks best at finding?",
+        "options": [
+          "Common issues visible early in structure and conventions.",
+          "Every need users will raise in the future.",
+          "Failures that definitely happened in production."
+        ],
+        "explanation": "Correct. Static checks cover problems visible from code shape; functional verification still matters."
+      }
     },
     {
       "concept_id": "code-formatting",
@@ -320,7 +430,18 @@
         "依赖包的授权方式。"
       ],
       "correct_index": 0,
-      "explanation": "对。格式化通常不改变程序意图，重点是让协作时的阅读成本更低。"
+      "explanation": "对。格式化通常不改变程序意图，重点是让协作时的阅读成本更低。",
+      "en": {
+        "title": "Use a formatter for consistent code appearance",
+        "lesson": "A formatter makes indentation, line breaks, and spacing consistent. It is like laying out the same table by one shared rule, so readers can focus on content instead of each person's formatting habits.",
+        "question": "What does a formatting tool mainly change?",
+        "options": [
+          "The consistency of code layout and appearance.",
+          "The business goal the program must achieve.",
+          "The license of a dependency package."
+        ],
+        "explanation": "Correct. Formatting usually does not change program intent; it lowers the cost of reading together."
+      }
     },
     {
       "concept_id": "browser-navigation",
@@ -344,7 +465,18 @@
         "打开页面会让测试不再需要。"
       ],
       "correct_index": 0,
-      "explanation": "对。运行中的页面提供真实反馈，但仍需要结合测试和检查来判断结果。"
+      "explanation": "对。运行中的页面提供真实反馈，但仍需要结合测试和检查来判断结果。",
+      "en": {
+        "title": "Open a real page in the browser",
+        "lesson": "Opening a page lets you see the program's result in its real use environment. It is like turning on a stage set instead of judging it only from a drawing; some problems appear only after it runs.",
+        "question": "Why view a page in the browser?",
+        "options": [
+          "Some visual and interaction problems appear only after it runs.",
+          "The browser automatically writes the remaining feature.",
+          "Opening the page means tests are no longer needed."
+        ],
+        "explanation": "Correct. A running page gives real feedback, but tests and inspection are still needed to judge the result."
+      }
     },
     {
       "concept_id": "browser-screenshot",
@@ -368,7 +500,18 @@
         "替代所有交互操作的记录。"
       ],
       "correct_index": 0,
-      "explanation": "对。截图记录一个视觉瞬间；不同设备和后续交互仍可能呈现不同结果。"
+      "explanation": "对。截图记录一个视觉瞬间；不同设备和后续交互仍可能呈现不同结果。",
+      "en": {
+        "title": "Keep visual-check evidence with a screenshot",
+        "lesson": "A screenshot fixes one moment of a page in place, like a photo you can revisit. It helps compare before and after, and lets someone who was not present understand what was actually visible.",
+        "question": "What is a screenshot best used as?",
+        "options": [
+          "Revisitable evidence of how a page looked at one moment.",
+          "A promise that every device will look exactly the same.",
+          "A replacement for every record of interaction."
+        ],
+        "explanation": "Correct. A screenshot records one visual moment; different devices and later interactions can still differ."
+      }
     },
     {
       "concept_id": "browser-interaction",
@@ -392,7 +535,18 @@
         "服务器硬件的购买时间。"
       ],
       "correct_index": 0,
-      "explanation": "对。交互检查关注动作和反馈之间的连接，而不仅是页面的初始外观。"
+      "explanation": "对。交互检查关注动作和反馈之间的连接，而不仅是页面的初始外观。",
+      "en": {
+        "title": "Verify an interaction path by clicking",
+        "lesson": "Clicking simulates a user taking a path through an interface. It is like ringing a doorbell yourself to confirm it rings: a static screen can look right without responding as expected after an action.",
+        "question": "What information does a click check add beyond a static page?",
+        "options": [
+          "Whether the interface reacts as expected after a user action.",
+          "The complete history of the page file.",
+          "When the server hardware was purchased."
+        ],
+        "explanation": "Correct. Interaction checks connect an action to its feedback, not only the page's initial appearance."
+      }
     },
     {
       "concept_id": "filesystem-reading",
@@ -417,7 +571,18 @@
         "自动把所有文件合并成一个。"
       ],
       "correct_index": 0,
-      "explanation": "对。理解当前内容能减少误改风险，但不等于已经完成修复。"
+      "explanation": "对。理解当前内容能减少误改风险，但不等于已经完成修复。",
+      "en": {
+        "title": "Read files before deciding on a change",
+        "lesson": "Reading files confirms the current situation before acting. It is like opening instructions and checking where parts are before a repair, so you do not change the wrong thing based on a guess.",
+        "question": "What is the value of reading relevant files first?",
+        "options": [
+          "Make decisions from the real situation instead of changing things by guesswork.",
+          "Make the files impossible to modify from then on.",
+          "Automatically combine every file into one."
+        ],
+        "explanation": "Correct. Understanding current content reduces the risk of a wrong edit, but it does not mean the fix is complete."
+      }
     },
     {
       "concept_id": "pull-request-review",
@@ -442,7 +607,18 @@
         "让所有人必须采用同一种写法。"
       ],
       "correct_index": 0,
-      "explanation": "对。评审增加独立检查，不是自动保证正确性的魔法步骤。"
+      "explanation": "对。评审增加独立检查，不是自动保证正确性的魔法步骤。",
+      "en": {
+        "title": "Understand a change boundary through review",
+        "lesson": "Review examines a change from another person's perspective. It is like asking a teammate to walk the route you just took; they can often spot turns you missed because the route was too familiar.",
+        "question": "What is most valuable about review?",
+        "options": [
+          "Bringing another perspective to a change's boundaries and effects.",
+          "Guaranteeing that no change ever needs testing again.",
+          "Making everyone use exactly one writing style."
+        ],
+        "explanation": "Correct. Review adds an independent check; it is not a magic step that guarantees correctness."
+      }
     },
     {
       "concept_id": "javascript-change",
@@ -478,7 +654,18 @@
         "项目文件夹的创建日期。"
       ],
       "correct_index": 0,
-      "explanation": "对。脚本通常描述行为流程，因此改动需要结合输入和结果一起检查。"
+      "explanation": "对。脚本通常描述行为流程，因此改动需要结合输入和结果一起检查。",
+      "en": {
+        "title": "Understand a script-logic change",
+        "lesson": "Script files often describe how a program should act after receiving input. Changing one is like adjusting a process description: pressing the same button can lead to different later steps.",
+        "question": "What is a script-logic change most likely to affect?",
+        "options": [
+          "The steps a program takes after receiving input.",
+          "The physical brightness of a monitor.",
+          "The date the project folder was created."
+        ],
+        "explanation": "Correct. Scripts usually describe behavior flow, so a change should be checked with both inputs and outcomes."
+      }
     },
     {
       "concept_id": "typescript-change",
@@ -506,7 +693,18 @@
         "所有网络请求都自动成功。"
       ],
       "correct_index": 0,
-      "explanation": "对。类型能提前发现一类数据不匹配问题，但不能覆盖所有运行时情况。"
+      "explanation": "对。类型能提前发现一类数据不匹配问题，但不能覆盖所有运行时情况。",
+      "en": {
+        "title": "Use types to describe data shape",
+        "lesson": "Types are like shape labels on data: a number belongs here, a name or list belongs there. They let tools catch some cases of putting the wrong thing in a box before the program runs.",
+        "question": "What do type constraints most directly help prevent?",
+        "options": [
+          "Putting data with the wrong expected shape in the wrong place.",
+          "Making every interface automatically prettier.",
+          "Making every network request succeed automatically."
+        ],
+        "explanation": "Correct. Types can catch one class of data mismatch early, but they do not cover every runtime situation."
+      }
     },
     {
       "concept_id": "json-query-with-jq",
@@ -531,7 +729,18 @@
         "让数据从此不再需要检查。"
       ],
       "correct_index": 0,
-      "explanation": "对。 `jq` 帮你按条件筛选；条件是否合适仍需要人确认。"
+      "explanation": "对。 `jq` 帮你按条件筛选；条件是否合适仍需要人确认。",
+      "en": {
+        "title": "Filter structured data with `jq`",
+        "lesson": "`jq` selects the needed parts of structured data using explicit conditions. It is like checking matching items from a stack of consistently formatted forms instead of searching through them one by one.",
+        "question": "What work does using `jq` most directly reduce?",
+        "options": [
+          "Manually looking through structured data one item at a time.",
+          "Automatically publishing all data.",
+          "Making data never need checking again."
+        ],
+        "explanation": "Correct. `jq` filters by conditions; a person still needs to confirm that the conditions are appropriate."
+      }
     },
     {
       "concept_id": "terminal-multiplexing",
@@ -555,7 +764,18 @@
         "项目不再需要版本记录。"
       ],
       "correct_index": 0,
-      "explanation": "对。 `tmux` 组织和恢复终端会话，不会替你判断命令结果。"
+      "explanation": "对。 `tmux` 组织和恢复终端会话，不会替你判断命令结果。",
+      "en": {
+        "title": "Keep multiple terminal workspaces with `tmux`",
+        "lesson": "`tmux` organizes multiple terminal sessions in one recoverable workspace. It is like arranging several active workbenches in one room, so you can return to their places after stepping away.",
+        "question": "What is `tmux` best at preserving?",
+        "options": [
+          "The context and place of multiple terminal tasks.",
+          "A guarantee that every command will always succeed.",
+          "A project no longer needing version history."
+        ],
+        "explanation": "Correct. `tmux` organizes and restores terminal sessions; it does not judge command results for you."
+      }
     },
     {
       "concept_id": "web-fetch",
@@ -578,7 +798,18 @@
         "自动替网页写完界面。"
       ],
       "correct_index": 0,
-      "explanation": "对。 `fetch` 负责请求；是否成功和如何处理结果需要后续判断。"
+      "explanation": "对。 `fetch` 负责请求；是否成功和如何处理结果需要后续判断。",
+      "en": {
+        "title": "Fetch web resources with `fetch`",
+        "lesson": "`fetch` requests a resource from an address. It is like asking a records clerk to retrieve a document by address: after it arrives, you still need to check its source, status, and contents.",
+        "question": "What still needs to happen after `fetch`?",
+        "options": [
+          "Check whether the returned status and content are usable.",
+          "Assume every request must be correct.",
+          "Automatically finish writing the web interface."
+        ],
+        "explanation": "Correct. `fetch` makes the request; later judgment determines whether it succeeded and how to handle the result."
+      }
     },
     {
       "concept_id": "server-sent-events",
@@ -603,7 +834,18 @@
         "让网络连接永远不会中断。"
       ],
       "correct_index": 0,
-      "explanation": "对。 `SSE` 适合单向持续更新；连接状态仍需要被妥善处理。"
+      "explanation": "对。 `SSE` 适合单向持续更新；连接状态仍需要被妥善处理。",
+      "en": {
+        "title": "Receive ongoing updates with `SSE`",
+        "lesson": "`SSE` lets a server keep sending new messages to a browser or client. It is like subscribing to a noticeboard that keeps updating instead of repeatedly asking whether there is a new notice.",
+        "question": "What kind of information flow is `SSE` best for?",
+        "options": [
+          "New state or notifications sent continuously by a server.",
+          "Saving every file permanently in a single action.",
+          "Guaranteeing that a network connection never breaks."
+        ],
+        "explanation": "Correct. `SSE` suits one-way ongoing updates; connection state still needs proper handling."
+      }
     },
     {
       "concept_id": "regular-expression-search",
@@ -628,7 +870,18 @@
         "所有搜索结果一定正确。"
       ],
       "correct_index": 0,
-      "explanation": "对。模式定义匹配边界，写完后仍要检查它是否覆盖了想找的内容。"
+      "explanation": "对。模式定义匹配边界，写完后仍要检查它是否覆盖了想找的内容。",
+      "en": {
+        "title": "Search text by pattern with `grep`",
+        "lesson": "`grep` filters content using a text pattern. It is like writing a small rule card for a search: text that fits the rule stays, and other text is set aside for now.",
+        "question": "What does a regular-expression pattern most directly determine?",
+        "options": [
+          "Which text counts as a matching result.",
+          "That files will definitely be changed automatically.",
+          "That every search result is definitely correct."
+        ],
+        "explanation": "Correct. A pattern defines the matching boundary; after writing it, you still check whether it covers what you meant to find."
+      }
     },
     {
       "concept_id": "css-animation",
@@ -650,7 +903,18 @@
         "网络请求一定成功的保证。"
       ],
       "correct_index": 0,
-      "explanation": "对。 `CSS` 动画帮助表达变化；功能结果仍要通过真实交互和检查确认。"
+      "explanation": "对。 `CSS` 动画帮助表达变化；功能结果仍要通过真实交互和检查确认。",
+      "en": {
+        "title": "Use `CSS` animation to show state changes",
+        "lesson": "`CSS` animation moves an interface smoothly from one state to another. It is like adding a clear transition cue to a static sign, making it easier to understand that a change is happening.",
+        "question": "What kind of information does animation best add?",
+        "options": [
+          "How an interface state is changing.",
+          "The correct answer to every business rule.",
+          "A guarantee that a network request will succeed."
+        ],
+        "explanation": "Correct. `CSS` animation helps express change; real interaction and checking still confirm functional results."
+      }
     },
     {
       "concept_id": "style-change",
@@ -674,7 +938,18 @@
         "版本控制的提交顺序。"
       ],
       "correct_index": 0,
-      "explanation": "对。样式主要负责呈现，页面行为和数据处理通常由其他部分承担。"
+      "explanation": "对。样式主要负责呈现，页面行为和数据处理通常由其他部分承担。",
+      "en": {
+        "title": "Arrange a page's appearance with style rules",
+        "lesson": "Style rules determine how text, spacing, color, and layout appear. They are like rules for arranging a room: the furniture has not changed, but its position, hierarchy, and comfort can feel very different.",
+        "question": "What do style changes mainly affect?",
+        "options": [
+          "The appearance and layout of page content.",
+          "The history of data in a database.",
+          "The order of version-control commits."
+        ],
+        "explanation": "Correct. Styles mainly control presentation; page behavior and data handling usually belong to other parts."
+      }
     },
     {
       "concept_id": "markup-change",
@@ -698,7 +973,18 @@
         "项目的发布日程。"
       ],
       "correct_index": 0,
-      "explanation": "对。结构给内容一个清晰骨架，再由样式和行为让它完整呈现。"
+      "explanation": "对。结构给内容一个清晰骨架，再由样式和行为让它完整呈现。",
+      "en": {
+        "title": "Use page structure to express content hierarchy",
+        "lesson": "Page structure describes what is a heading, paragraph, button, or region. It is like building a house frame: first distinguish rooms and passages, then arrange decoration and interaction.",
+        "question": "What problem does page structure solve first?",
+        "options": [
+          "The hierarchy and composition between pieces of content.",
+          "Each user's network speed.",
+          "The project's release schedule."
+        ],
+        "explanation": "Correct. Structure gives content a clear frame; styles and behavior then make the presentation complete."
+      }
     },
     {
       "concept_id": "data-file-change",
@@ -722,7 +1008,18 @@
         "让所有信息都必须公开。"
       ],
       "correct_index": 0,
-      "explanation": "对。固定结构降低理解歧义，但数据仍需要正确维护和验证。"
+      "explanation": "对。固定结构降低理解歧义，但数据仍需要正确维护和验证。",
+      "en": {
+        "title": "Store explicit relationships with structured data",
+        "lesson": "Structured data organizes information into fixed fields, like a consistently filled form. A program can then find each item reliably instead of guessing meaning from one long description.",
+        "question": "What is a key benefit of structured data?",
+        "options": [
+          "It lets a program reliably read information from explicit fields.",
+          "It means data never needs updating.",
+          "It means every piece of information must be public."
+        ],
+        "explanation": "Correct. A fixed structure reduces ambiguity, but the data still needs correct maintenance and validation."
+      }
     },
     {
       "concept_id": "documentation-change",
@@ -746,7 +1043,18 @@
         "自动替项目完成运行。"
       ],
       "correct_index": 0,
-      "explanation": "对。说明把上下文保存下来，尤其能减少未来重新猜测决策原因的成本。"
+      "explanation": "对。说明把上下文保存下来，尤其能减少未来重新猜测决策原因的成本。",
+      "en": {
+        "title": "Write decisions into project documentation",
+        "lesson": "Documentation preserves goals, use, and tradeoffs for future readers. It is like leaving a clear note for whoever takes over: they learn not only what exists now, but why it was arranged that way.",
+        "question": "Who does project documentation help most?",
+        "options": [
+          "People who need to understand the project later, including your future self.",
+          "Only people who already remember every detail.",
+          "Automatically completing the project's runtime work."
+        ],
+        "explanation": "Correct. Documentation preserves context and especially reduces the cost of guessing later why a decision was made."
+      }
     },
     {
       "concept_id": "python-change",
@@ -769,7 +1077,18 @@
         "所有项目中的数据量。"
       ],
       "correct_index": 0,
-      "explanation": "对。脚本擅长稳定执行已定义步骤，判断目标是否合理仍需要人参与。"
+      "explanation": "对。脚本擅长稳定执行已定义步骤，判断目标是否合理仍需要人参与。",
+      "en": {
+        "title": "Organize automated steps with a script",
+        "lesson": "A script can turn a sequence of repeated actions into a repeatable process. It is like writing daily manual steps as a recipe: once ingredients and order are clear, someone else can complete the same process.",
+        "question": "What are automation scripts best at reducing?",
+        "options": [
+          "Repeated manual work where steps are easy to miss.",
+          "Every decision that needs human judgment.",
+          "The amount of data in every project."
+        ],
+        "explanation": "Correct. Scripts reliably execute defined steps; people still judge whether the goal is appropriate."
+      }
     },
     {
       "concept_id": "database-query-change",
@@ -793,7 +1112,18 @@
         "版本提交的作者。"
       ],
       "correct_index": 0,
-      "explanation": "对。条件决定筛选边界，因此修改查询时要特别留意是否扩大或缩小了结果。"
+      "explanation": "对。条件决定筛选边界，因此修改查询时要特别留意是否扩大或缩小了结果。",
+      "en": {
+        "title": "Describe the data you want with a query",
+        "lesson": "A query tells a data store which records you want and which conditions should filter them. It is like giving a library a clear borrowing list: clearer conditions bring returned results closer to what you need.",
+        "question": "What do query conditions most directly determine?",
+        "options": [
+          "The range of records that will be selected.",
+          "The size of a page's font.",
+          "The author of a version-control commit."
+        ],
+        "explanation": "Correct. Conditions define the filter boundary, so changing a query can widen or narrow its results."
+      }
     },
     {
       "concept_id": "go-change",
@@ -816,7 +1146,18 @@
         "让所有任务必然同时结束。"
       ],
       "correct_index": 0,
-      "explanation": "对。并发能改善等待安排，但仍需要清楚协调顺序和共享资源。"
+      "explanation": "对。并发能改善等待安排，但仍需要清楚协调顺序和共享资源。",
+      "en": {
+        "title": "Split concurrent work into coordinated tasks",
+        "lesson": "Concurrency lets multiple waiting tasks make progress in an interleaved way, like chopping vegetables while water boils. The point is not to do everything at once, but to exchange results at the right time.",
+        "question": "What situation is concurrency best suited to handle?",
+        "options": [
+          "Multiple tasks waiting on different resources.",
+          "Hiding an error so it no longer appears.",
+          "Making every task definitely finish at the same time."
+        ],
+        "explanation": "Correct. Concurrency can improve how waiting is arranged, but order and shared resources still need clear coordination."
+      }
     },
     {
       "concept_id": "rust-change",
@@ -839,7 +1180,18 @@
         "所有界面的视觉差异。"
       ],
       "correct_index": 0,
-      "explanation": "对。提前约束资源使用能防住一类问题，但仍要验证整体行为是否符合需要。"
+      "explanation": "对。提前约束资源使用能防住一类问题，但仍要验证整体行为是否符合需要。",
+      "en": {
+        "title": "Check resource-use boundaries before compiling",
+        "lesson": "Resource-use boundaries are like borrowing rules: who is using something, when it returns, and whether it can be handed to someone else should be clear before work begins. That reduces confusion that would otherwise appear only at runtime.",
+        "question": "What does checking resource boundaries early aim to reduce?",
+        "options": [
+          "Confusion when people or steps use the same resource.",
+          "The startup time of every program.",
+          "Visual differences between every interface."
+        ],
+        "explanation": "Correct. Early resource constraints prevent one class of issue, but overall behavior still needs verification."
+      }
     },
     {
       "concept_id": "shell-automation",
@@ -863,7 +1215,18 @@
         "所有项目都需要同一套工具。"
       ],
       "correct_index": 0,
-      "explanation": "对。自动化让固定步骤更一致，但外部条件和业务判断仍要单独处理。"
+      "explanation": "对。自动化让固定步骤更一致，但外部条件和业务判断仍要单独处理。",
+      "en": {
+        "title": "Turn command steps into a repeatable workflow",
+        "lesson": "Once command steps are written down, each run follows the same order. It is like putting an event-preparation checklist on a wall: it reduces omissions and shows others which stages the workflow includes.",
+        "question": "What risk does command automation most clearly reduce?",
+        "options": [
+          "Missing a fixed step during repeated execution.",
+          "Any external service being unavailable.",
+          "Every project needing the same tools."
+        ],
+        "explanation": "Correct. Automation makes fixed steps more consistent, but external conditions and business judgment still need separate handling."
+      }
     }
   ]
 }

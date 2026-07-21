@@ -8,6 +8,7 @@ const test = require('node:test');
 
 const { createBroker } = require('../lib/broker');
 const { namespaceConceptId } = require('../lib/project-concepts');
+const { WARMUP_CATALOG } = require('../lib/warmup-catalog');
 
 async function temporaryDirectory(t) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'osmosis-warmup-broker-'));
@@ -180,6 +181,79 @@ test('a delayed warmup callback loses its owner epoch cleanly when the broker cl
     null,
     'the losing callback never hydrates a project channel or starts a provider path',
   );
+});
+
+test('new warmups use the channel locale while issued warmups survive locale switches and restart', async (t) => {
+  const root = await temporaryDirectory(t);
+  const config = configFor(root, {
+    provider: 'none',
+  });
+  const broker = createBroker({ config, hub: { broadcast() {} } });
+  t.after(() => broker.close());
+  await broker.startOwner();
+  const projectId = broker.defaultProjectId;
+  await broker.activateProject(projectId, {
+    capture_mode: 'experimental-ambient',
+    carry: true,
+    lesson_locale: 'en',
+  });
+
+  const served = await broker.acceptWarmupCandidate(projectId, observedExec({
+    command: 'rg --files',
+    epoch: 'english-issued',
+    projectId,
+  }));
+  assert.equal(served.state, 'warmup-served');
+  const englishSnapshot = await broker.projectSnapshot(projectId);
+  const issuedEnglish = englishSnapshot.studio.current_warmup;
+  assert.equal(issuedEnglish.title, WARMUP_CATALOG.concepts[0].en.title);
+  assert.deepEqual(issuedEnglish.options, WARMUP_CATALOG.concepts[0].en.options);
+
+  await broker.updateSettings({ lesson_locale: 'zh-CN' });
+  const switchedSnapshot = await broker.projectSnapshot(projectId);
+  assert.deepEqual(switchedSnapshot.studio.current_warmup, issuedEnglish, 'changing locale only affects future warmups');
+
+  await broker.whenIdle();
+  const completedChannel = await broker.ensureChannel(projectId);
+  const archivedEnglish = completedChannel.state.studio.warmup_history.find(
+    (warmup) => warmup.warmup_id === issuedEnglish.warmup_id,
+  );
+  assert.equal(archivedEnglish.title, issuedEnglish.title, 'the issued warmup keeps its English copy after normal Studio work completes');
+  assert.deepEqual(archivedEnglish.options, issuedEnglish.options, 'the issued warmup keeps its answer options in history');
+  broker.close();
+  const restarted = createBroker({ config, hub: { broadcast() {} } });
+  t.after(() => restarted.close());
+  await restarted.startOwner();
+  const restartedChannel = await restarted.ensureChannel(projectId);
+  const restoredEnglish = restartedChannel.state.studio.warmup_history.find(
+    (warmup) => warmup.warmup_id === issuedEnglish.warmup_id,
+  );
+  assert.equal(restoredEnglish.title, issuedEnglish.title, 'restart reloads the issued English warmup without translation');
+  assert.deepEqual(restoredEnglish.options, issuedEnglish.options, 'restart keeps the issued warmup answer options intact');
+
+  const zhRoot = await temporaryDirectory(t);
+  const zhBroker = createBroker({
+    config: configFor(zhRoot, { provider: 'none' }),
+    hub: { broadcast() {} },
+  });
+  t.after(() => zhBroker.close());
+  await zhBroker.startOwner();
+  const zhProjectId = zhBroker.defaultProjectId;
+  await zhBroker.activateProject(zhProjectId, {
+    capture_mode: 'experimental-ambient',
+    carry: true,
+    lesson_locale: 'zh-CN',
+  });
+  const zhServed = await zhBroker.acceptWarmupCandidate(zhProjectId, observedExec({
+    command: 'rg --files',
+    epoch: 'chinese-issued',
+    projectId: zhProjectId,
+  }));
+  assert.equal(zhServed.state, 'warmup-served');
+  const zhSnapshot = await zhBroker.projectSnapshot(zhProjectId);
+  assert.equal(zhSnapshot.studio.current_warmup.title, WARMUP_CATALOG.concepts[0].title);
+  assert.deepEqual(zhSnapshot.studio.current_warmup.options, WARMUP_CATALOG.concepts[0].options);
+  await zhBroker.whenIdle();
 });
 
 test('a real Codex provider path carries a warmup target through a synthetic tree mapping and replaces the same-epoch warmup', { timeout: 15_000 }, async (t) => {

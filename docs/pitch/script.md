@@ -8,7 +8,7 @@ Target pace: **about 120 words per minute**. Speak only the quoted paragraphs. B
 
 ## 0:12–0:22 — Slide 2 / comprehension debt
 
-> “That is comprehension debt: working code without a working mental model. OpenAI reports 137x growth in non-developer individual Codex users-adoption, not comprehension. Osmosis addresses that separate gap.”
+> “That is comprehension debt: working code without a working mental model. OpenAI reports 137x growth in non-developer individual Codex users—adoption, not comprehension. Osmosis addresses that separate gap.”
 
 ## 0:22–0:32 — Slide 3 / pivot
 
