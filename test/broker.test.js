@@ -52,7 +52,10 @@ async function waitFor(check, message, attempts = 120) {
     if (result) {
       return result;
     }
-    await new Promise((resolve) => setImmediate(resolve));
+    // Persistence now includes cross-process lock I/O. A timer yield lets
+    // that I/O make progress instead of spinning through every retry in the
+    // check phase before the filesystem worker can resolve it.
+    await new Promise((resolve) => setTimeout(resolve, 1));
   }
   throw new Error(`Timed out waiting for ${message}.`);
 }
@@ -542,61 +545,75 @@ test('an Ambient-enabled owner preserves legacy carried capture and respects a l
   }, 'an explicit reports-only choice remains outside Ambient Watch');
 });
 
-test('a Studio candidate rejected at the global ceiling resumes fairly when its slot frees', async (t) => {
+async function assertGlobalCeilingResume(t, iteration) {
   const root = await temporaryDirectory(t);
-  const projectA = path.join(root, 'slot-holder-project');
-  const projectB = path.join(root, 'waiting-project');
+  const projectA = path.join(root, `slot-holder-project-${iteration}`);
+  const projectB = path.join(root, `waiting-project-${iteration}`);
   await Promise.all([fs.mkdir(projectA), fs.mkdir(projectB)]);
   const broker = createBroker({
     config: studioConfig(root, { cwd: projectA, globalReportQueueCap: 1 }),
     hub: { broadcast() {} },
   });
   let releaseHolder;
-  t.after(() => {
+  try {
+    await broker.startOwner();
+    const projectAId = broker.defaultProjectId;
+    await carryProject(broker, projectAId);
+    const pendingB = await broker.register(projectB);
+    await carryProject(broker, pendingB.project_id);
+    const projectBId = pendingB.project_id;
+    const holderChannel = await broker.ensureChannel(projectAId);
+    const waitingChannel = await broker.ensureChannel(projectBId);
+    const templateCard = holderChannel.provider.generateCard.bind(holderChannel.provider);
+    let beginHolder;
+    const holderStarted = new Promise((resolve) => { beginHolder = resolve; });
+    const holderGate = new Promise((resolve) => { releaseHolder = resolve; });
+    holderChannel.provider.generateCard = async (...args) => {
+      beginHolder();
+      await holderGate;
+      return templateCard(...args);
+    };
+
+    assert.equal(await broker.acceptLocalReport(report('Occupy the one global provider slot'), projectAId), true);
+    await holderStarted;
+    assert.equal(broker.scheduler.getDebugState().active, 1);
+
+    assert.equal(await broker.acceptLocalReport(report('Wait for the fair Studio retry'), projectBId), true);
+    await waitFor(
+      () => waitingChannel.state.studio.candidates.length === 1 && !waitingChannel.studio.status().generation_in_flight,
+      'the second channel to retain its rejected candidate',
+    );
+    assert.equal(waitingChannel.studio.status().waiting.reason, 'queued');
+    assert.equal(waitingChannel.state.cards.length, 0);
+
+    releaseHolder();
+    try {
+      await waitFor(
+        () => waitingChannel.state.cards.length === 1 && waitingChannel.studio.currentCard()?.source?.task === 'Wait for the fair Studio retry',
+        'the freed global slot to wake the waiting channel',
+        // Outbox delivery intentionally adds two durable writes (state+outbox,
+        // then its cleared acknowledgement) before the learner can see a card.
+        // Keep this polling assertion about fairness rather than local disk speed.
+        600,
+      );
+    } catch (error) {
+      error.message = `${error.message} (iteration ${iteration}, ${JSON.stringify(waitingChannel.studio.status())})`;
+      throw error;
+    }
+    await broker.whenIdle();
+    assert.equal(waitingChannel.state.studio.candidates.length, 0);
+    assert.equal(waitingChannel.studio.status().generation_in_flight, false);
+  } finally {
     releaseHolder?.();
     broker.close();
-  });
+  }
+}
 
-  await broker.startOwner();
-  const projectAId = broker.defaultProjectId;
-  await carryProject(broker, projectAId);
-  const pendingB = await broker.register(projectB);
-  await carryProject(broker, pendingB.project_id);
-  const projectBId = pendingB.project_id;
-  const holderChannel = await broker.ensureChannel(projectAId);
-  const waitingChannel = await broker.ensureChannel(projectBId);
-  const templateCard = holderChannel.provider.generateCard.bind(holderChannel.provider);
-  let beginHolder;
-  const holderStarted = new Promise((resolve) => { beginHolder = resolve; });
-  const holderGate = new Promise((resolve) => { releaseHolder = resolve; });
-  holderChannel.provider.generateCard = async (...args) => {
-    beginHolder();
-    await holderGate;
-    return templateCard(...args);
-  };
-
-  assert.equal(await broker.acceptLocalReport(report('Occupy the one global provider slot'), projectAId), true);
-  await holderStarted;
-  assert.equal(broker.scheduler.getDebugState().active, 1);
-
-  assert.equal(await broker.acceptLocalReport(report('Wait for the fair Studio retry'), projectBId), true);
-  await waitFor(
-    () => waitingChannel.state.studio.candidates.length === 1 && !waitingChannel.studio.status().generation_in_flight,
-    'the second channel to retain its rejected candidate',
-  );
-  assert.equal(waitingChannel.studio.status().waiting.reason, 'queued');
-  assert.equal(waitingChannel.state.cards.length, 0);
-
-  releaseHolder();
-  await waitFor(
-    () => waitingChannel.state.cards.length === 1 && waitingChannel.studio.currentCard()?.source?.task === 'Wait for the fair Studio retry',
-    'the freed global slot to wake the waiting channel',
-    // Outbox delivery intentionally adds two durable writes (state+outbox,
-    // then its cleared acknowledgement) before the learner can see a card.
-    // Keep this polling assertion about fairness rather than local disk speed.
-    600,
-  );
-  await broker.whenIdle();
-  assert.equal(waitingChannel.state.studio.candidates.length, 0);
-  assert.equal(waitingChannel.studio.status().generation_in_flight, false);
+test('a Studio candidate rejected at the global ceiling resumes fairly whenever its slot frees', async (t) => {
+  // This is a real broker path, repeated instead of relying on a one-in-many
+  // scheduling race: all runs hold the only provider slot, retain B's durable
+  // candidate, then release it and require a visible fair resume.
+  for (let iteration = 0; iteration < 40; iteration += 1) {
+    await assertGlobalCeilingResume(t, iteration);
+  }
 });

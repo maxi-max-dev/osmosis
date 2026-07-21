@@ -95,6 +95,7 @@ test('a paused outgoing writer cannot clobber a takeover answer, profile, or rec
     // reject it even if that task failed to observe the owner transition.
     canCommit: () => true,
     initialCardsRevision: outgoingLoaded.cards_revision,
+    writeEpoch: 'outgoing-owner',
   });
   const staleProfileWrite = outgoingProfile.save();
   const staleCardsWrite = outgoingPersistence.saveCards(outgoingLoaded.cards);
@@ -106,6 +107,7 @@ test('a paused outgoing writer cannot clobber a takeover answer, profile, or rec
   const takeoverPersistence = createPersistence(config, {
     initialCardsRevision: takeoverState.cards_revision,
     profileStore: takeoverProfile,
+    writeEpoch: 'takeover-owner',
   });
   const receiptStore = createAnswerReceiptStore({ profileDir });
   const answerService = createAnswerService({
@@ -139,4 +141,46 @@ test('a paused outgoing writer cannot clobber a takeover answer, profile, or rec
   assert.equal(receipt.card_id, initialCard.card_id);
   assert.equal(receipt.concept_id, conceptId);
   assert.equal(receipt.resulting_strength, 2);
+});
+
+test('a current owner rebases a same-epoch interleaved cards write without masking another owner', async (t) => {
+  const root = await temporaryDirectory(t);
+  const profileDir = path.join(root, 'profile');
+  const projectId = 'project-0123456789';
+  const config = projectConfig(root, profileDir, projectId);
+  const cards = [{
+    card_id: 'same-owner-card',
+    concept_id: `${projectId}:http`,
+    marks: [],
+    state: { answered: false, chosen_index: null, correct: null },
+  }];
+  await fs.mkdir(config.stateDir, { recursive: true });
+  await fs.writeFile(path.join(config.stateDir, 'cards.json'), `${JSON.stringify({ cards }, null, 2)}\n`);
+  const loaded = await loadProjectState(config);
+  const firstPaused = deferred();
+  const firstStarted = deferred();
+  const first = createPersistence(config, {
+    beforeCardsWrite: async () => {
+      firstStarted.resolve();
+      await firstPaused.promise;
+    },
+    initialCardsRevision: loaded.cards_revision,
+    writeEpoch: 'current-owner',
+  });
+  const sibling = createPersistence(config, {
+    initialCardsRevision: loaded.cards_revision,
+    writeEpoch: 'current-owner',
+  });
+
+  const firstWrite = first.saveCards(loaded.cards);
+  await firstStarted.promise;
+  loaded.cards[0].marks.push('sibling');
+  await sibling.saveCards(loaded.cards);
+  loaded.cards[0].marks.push('rebased');
+  firstPaused.resolve();
+  await firstWrite;
+
+  const persisted = JSON.parse(await fs.readFile(path.join(config.stateDir, 'cards.json'), 'utf8'));
+  assert.equal(persisted.write_epoch, 'current-owner');
+  assert.deepEqual(persisted.cards[0].marks, ['sibling', 'rebased']);
 });
