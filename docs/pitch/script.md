@@ -8,7 +8,7 @@ Target pace: **about 120 words per minute**. Speak only the quoted paragraphs. B
 
 ## 0:12–0:22 — Slide 2 / comprehension debt
 
-> “That is comprehension debt: working code without a working mental model. In Anthropic’s 52-person study, AI-assisted coders scored about seventeen percent lower on comprehension.”
+> “That is comprehension debt: working code without a working mental model. OpenAI reports 137x growth in non-developer individual Codex users-adoption, not comprehension. Osmosis addresses that separate gap.”
 
 ## 0:22–0:32 — Slide 3 / pivot
 
@@ -32,7 +32,7 @@ Target pace: **about 120 words per minute**. Speak only the quoted paragraphs. B
 
 ## 1:28–1:44 — Slide 7 / architecture
 
-> “Under the wall is a local MCP reporting server, an experimental observer for Codex rollout activity, and an owner-only broker protecting project state, ledgers, and shared mastery. There are 186 automated tests.”
+> “Under the wall is a local MCP reporting server, an experimental observer for Codex rollout activity, and an owner-only broker protecting project state, ledgers, and shared mastery. There are 202 automated tests.”
 
 ## 1:44–2:10 — Slide 8 / primary Codex session, AGENTS.md, session ID, commits
 
