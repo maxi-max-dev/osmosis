@@ -365,7 +365,12 @@ async function main() {
       config.port = address.port;
     }
     log(`HTTP listening on http://${config.host}:${config.port}`, `cwd=${config.cwd}`);
-    const ownerBroker = createBroker({ config, hub, getBaseUrl: () => primaryBaseUrl(config) });
+    const ownerBroker = createBroker({
+      canWrite: () => server.listening && !shuttingDown,
+      config,
+      hub,
+      getBaseUrl: () => primaryBaseUrl(config),
+    });
     try {
       // This is the one and only path that can load settings, hydrate a
       // channel, reconcile ledgers, or wake a persisted Studio candidate.

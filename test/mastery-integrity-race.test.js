@@ -9,6 +9,7 @@ const test = require('node:test');
 const { createAnswerService } = require('../lib/answer-service');
 const { createAnswerReceiptStore } = require('../lib/answer-receipt-store');
 const { createProfileStore } = require('../lib/profile-store');
+const { createProjectWriteFence } = require('../lib/project-write-fence');
 const { createPersistence, loadProjectState } = require('../lib/state');
 
 function deferred() {
@@ -140,6 +141,104 @@ test('a paused outgoing writer cannot clobber a takeover answer, profile, or rec
   assert.equal(persistedCard.state.correct, true);
   assert.equal(receipt.card_id, initialCard.card_id);
   assert.equal(receipt.concept_id, conceptId);
+  assert.equal(receipt.resulting_strength, 2);
+});
+
+test('a new owner fences a paused predecessor before its first cards commit', async (t) => {
+  const root = await temporaryDirectory(t);
+  const profileDir = path.join(root, 'profile');
+  const projectId = 'project-0123456789';
+  const conceptId = `${projectId}:running`;
+  const config = projectConfig(root, profileDir, projectId);
+  const initialCard = {
+    card_id: 'first-write-window-card',
+    concept_id: conceptId,
+    concept_name: 'Running',
+    correct_index: 1,
+    explanation: 'The new owner finishes the durable answer.',
+    options: ['Wrong', 'Correct', 'Wrong'],
+    question: 'Which answer is correct?',
+    state: { answered: false, chosen_index: null, correct: null },
+  };
+  await fs.mkdir(config.stateDir, { recursive: true });
+  await fs.mkdir(profileDir, { recursive: true });
+  await fs.writeFile(path.join(config.stateDir, 'cards.json'), `${JSON.stringify({ cards: [initialCard] }, null, 2)}\n`);
+  await fs.writeFile(config.treePath, `${JSON.stringify({
+    meta: {},
+    nodes: [{ children: [], concept_id: conceptId, name: 'Running' }],
+  }, null, 2)}\n`);
+
+  const outgoingFence = createProjectWriteFence({
+    ownerEpoch: 'outgoing-owner',
+    stateDir: config.stateDir,
+  });
+  assert.equal(await outgoingFence.claim(), true);
+  const outgoingState = await loadProjectState(config);
+  const staleCardsPaused = deferred();
+  const staleCardsStarted = deferred();
+  outgoingState.cards[0].obsolete_writer_marker = true;
+  const outgoingPersistence = createPersistence(config, {
+    beforeCardsWrite: async () => {
+      staleCardsStarted.resolve();
+      await staleCardsPaused.promise;
+    },
+    canCommit: () => outgoingFence.owns(),
+    initialCardsRevision: outgoingState.cards_revision,
+    writeEpoch: 'outgoing-owner',
+  });
+  const staleCardsWrite = outgoingPersistence.saveCards(outgoingState.cards);
+  await staleCardsStarted.promise;
+
+  // B claims before hydration, but has not written cards.json. This is the
+  // exact first-write window that a revision-only guard could not close.
+  const takeoverFence = createProjectWriteFence({
+    ownerEpoch: 'takeover-owner',
+    stateDir: config.stateDir,
+  });
+  assert.equal(await takeoverFence.claim(), true);
+  const takeoverProfile = createProfileStore({ profilePath: config.profilePath });
+  await takeoverProfile.load();
+  const takeoverState = await loadProjectState(config, takeoverProfile.strengths);
+  assert.equal(takeoverState.cards_revision, outgoingState.cards_revision, 'B only hydrated; it has not committed cards yet');
+  assert.equal(takeoverState.cards[0].obsolete_writer_marker, undefined);
+
+  // A resumes after B hydrated and before B makes its first cards commit.
+  // The durable owner fence, checked under the cards lock, refuses A.
+  staleCardsPaused.resolve();
+  await assert.rejects(staleCardsWrite, (error) => error?.code === 'EOWNERLEASE');
+
+  const takeoverPersistence = createPersistence(config, {
+    canCommit: () => takeoverFence.owns(),
+    initialCardsRevision: takeoverState.cards_revision,
+    profileStore: takeoverProfile,
+    writeEpoch: 'takeover-owner',
+  });
+  const receiptStore = createAnswerReceiptStore({ profileDir });
+  const answerService = createAnswerService({
+    answerReceiptStore: receiptStore,
+    cardService: {
+      clearPendingByConcept: () => 0,
+      persistCards: () => takeoverPersistence.saveCards(takeoverState.cards),
+      queueRequeue: () => {},
+    },
+    hub: { broadcast: () => {} },
+    persistence: takeoverPersistence,
+    profileStore: takeoverProfile,
+    projectId,
+    state: takeoverState,
+  });
+  const answer = await answerService.answer({ card_id: initialCard.card_id, chosen_index: 1 });
+  assert.equal(answer.strength, 2);
+
+  const persistedProfile = JSON.parse(await fs.readFile(config.profilePath, 'utf8'));
+  const persistedCards = JSON.parse(await fs.readFile(path.join(config.stateDir, 'cards.json'), 'utf8'));
+  const persistedCard = persistedCards.cards.find((card) => card.card_id === initialCard.card_id);
+  const receipt = await receiptStore.find(persistedCard.answer_receipt.receipt_id);
+  assert.equal(persistedProfile[conceptId].strength, 2);
+  assert.equal(persistedCard.state.answered, true);
+  assert.equal(persistedCard.state.correct, true);
+  assert.equal(persistedCard.obsolete_writer_marker, undefined);
+  assert.equal(receipt.receipt_id, persistedCard.answer_receipt.receipt_id);
   assert.equal(receipt.resulting_strength, 2);
 });
 
