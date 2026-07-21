@@ -32,7 +32,7 @@ Target pace: **about 120 words per minute**. Speak only the quoted paragraphs. B
 
 ## 1:28–1:44 — Slide 7 / architecture
 
-> “Under the wall is a local MCP reporting server, an experimental observer for Codex rollout activity, and an owner-only broker protecting project state, ledgers, and shared mastery. There are 202 automated tests.”
+> “Under the wall is a local MCP reporting server, an experimental observer for Codex rollout activity, and an owner-only broker protecting project state, ledgers, and shared mastery. There are 206 automated tests.”
 
 ## 1:44–2:10 — Slide 8 / primary Codex session, AGENTS.md, session ID, commits
 
