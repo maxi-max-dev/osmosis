@@ -1,6 +1,6 @@
 # Osmosis — final 2:30 voiceover
 
-Target pace: **about 130 words per minute**. Speak only the quoted paragraphs. Bracketed lines are screen direction, not narration.
+Target pace: **about 120 words per minute**. Speak only the quoted paragraphs. Bracketed lines are screen direction, not narration.
 
 ## 0:00–0:12 — Slide 1 / face or repo list
 
@@ -8,43 +8,43 @@ Target pace: **about 130 words per minute**. Speak only the quoted paragraphs. B
 
 ## 0:12–0:22 — Slide 2 / comprehension debt
 
-> “That is comprehension debt: working code without a working mental model. In Anthropic’s 52-person study, AI-assisted coders scored about seventeen percent lower on immediate comprehension.”
+> “That is comprehension debt: working code without a working mental model. In Anthropic’s 52-person study, AI-assisted coders scored about seventeen percent lower on comprehension.”
 
 ## 0:22–0:32 — Slide 3 / pivot
 
-> “So I asked a different question: what if the minutes my coding agent spends working could teach me the thing it just did?”
+> “Osmosis builds a living map of the project concepts your AI surfaces—and what you have demonstrated you understand. That is the product.”
 
 ## 0:32–0:47 — Slide 4, then live demo: Codex and Osmosis side by side
 
-> “This is Osmosis. I ask Codex to build a 3D scene. While it works, Osmosis watches project activity. Two seconds in, it spots a relevant tool and serves an instant warmup question.”
+> “I ask Codex to build a 3D scene. Osmosis watches bounded project activity. Two seconds in, a warmup can orient me to a relevant tool. It does not update mastery or the map.”
 
 ## 0:47–1:02 — Live demo: answer warmup, then show full card provenance
 
-> “One question. No invented curriculum: it is technology my agent uses now. Behind it, Codex turns sanitized context into a fuller, provenance-linked lesson.”
+> “Not a quiz app. Questions are how the map gains evidence: which project concepts surfaced, and which I have demonstrated I understand. A fuller, provenance-linked card makes that evidence explicit.”
 
 ## 1:02–1:15 — Live demo: answer correctly, tree lights, switch to Project B
 
-> “Answer correctly and the learning trail lights up. In another project, gold means I already mastered that concept, so Osmosis skips the duplicate. The knowledge follows me, not the repository.”
+> “Answer a full lesson correctly and the map gains demonstrated-understanding evidence. In Project B, gold carries that evidence forward and skips the duplicate. The map travels with me, not the repository.”
 
 ## 1:15–1:28 — Slide 5 / live demo: open Why no card
 
-> “And when there is no card, Osmosis says why. The activity ledger records what it observed, tried, delivered, and deliberately suppressed. That honesty matters: no invisible black box.”
+> “And when there is no card, Osmosis says why. Its activity ledger records what it observed, tried, delivered, or deliberately suppressed. No invisible black box.”
 
 ## 1:28–1:44 — Slide 7 / architecture
 
-> “Under the wall is a local MCP reporting server, an experimental observer for Codex rollout activity, and an owner-only broker that protects project state, ledgers, and shared mastery. The system has 186 automated tests.”
+> “Under the wall is a local MCP reporting server, an experimental observer for Codex rollout activity, and an owner-only broker protecting project state, ledgers, and shared mastery. There are 186 automated tests.”
 
 ## 1:44–2:10 — Slide 8 / primary Codex session, AGENTS.md, session ID, commits
 
-> “I set direction, milestones, provider and privacy boundaries, then ran acceptance and adversarial review. Codex implemented every product line in one primary session; here is the ID. In this recording environment, Codex ran on GPT-5.6 Terra: it wrote the code and recorded card lessons. Elsewhere, the provider inherits local Codex configuration. The direct OpenAI API backend is reserved, not implemented.”
+> “I set direction, milestones, provider and privacy boundaries, then ran acceptance and adversarial review. Codex implemented every product line in one primary session; here is its ID. In this recording environment, Codex ran on GPT-5.6 Terra: it wrote code and recorded card lessons. Elsewhere, the provider inherits local Codex configuration. The direct OpenAI API backend is reserved, not implemented.”
 
 ## 2:10–2:23 — Slide 9 / differentiation
 
-> “Unlike a manual codebase tutor, a PR merge gate, or live IDE teaching for aspiring engineers, Osmosis starts automatically in the wait window, uses multiple-choice retrieval, and remembers cross-project mastery for non-technical builders.”
+> “Unlike a manual codebase tutor, a PR merge gate, or live IDE teaching, Osmosis manages comprehension debt for non-technical builders: a project concept map with cross-project demonstrated mastery.”
 
 ## 2:23–2:30 — Slide 10 / return to calm card or close slide
 
-> “Vibe coding should make you smarter, not dumber. Osmosis turns your project into the curriculum.”
+> “Vibe coding should make you smarter, not dumber. Carry the map forward.”
 
 ---
 

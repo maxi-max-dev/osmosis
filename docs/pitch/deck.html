@@ -107,7 +107,7 @@
       .contrast-row:last-child p { color: var(--night-copy); }
 
       .flow-wrap { align-items: center; display: flex; flex: 1; justify-content: center; }
-      .flow { display: grid; gap: clamp(10px, 2vw, 28px); grid-template-columns: repeat(5, minmax(0, 1fr)); max-width: 1500px; width: 100%; }
+      .flow { display: grid; gap: clamp(10px, 2vw, 28px); grid-template-columns: repeat(4, minmax(0, 1fr)); max-width: 1500px; width: 100%; }
       .flow-step { min-width: 0; padding-top: clamp(12px, 2vh, 24px); position: relative; }
       .flow-step:not(:last-child)::after { color: var(--line-strong); content: "→"; font-size: clamp(1.5rem, 2.4vw, 3rem); position: absolute; right: clamp(-19px, -1.8vw, -8px); top: clamp(17px, 2.2vh, 30px); }
       .step-number { color: var(--coral); font-family: var(--mono); font-size: clamp(.72rem, .85vw, .95rem); font-weight: 800; letter-spacing: .1em; }
@@ -242,32 +242,31 @@
         <div class="chrome"><span>The wait is the product surface</span><span>03 / 10</span></div>
         <div style="display:flex;flex:1;flex-direction:column;justify-content:center">
           <p class="eyebrow animate">Osmosis</p>
-          <h2 class="title animate">Learn while your agent works.</h2>
-          <p class="subtitle animate">Not another course to remember later. A question about the exact technology your agent is using now.</p>
+          <h2 class="title animate">A living map of the project concepts your AI surfaces—and what you have demonstrated you understand.</h2>
+          <p class="subtitle animate">Cards are the interaction, not the product. They add evidence to a map of bounded, provenance-labelled concepts that surface while the project moves.</p>
           <div class="wait-contrast animate">
-            <div class="contrast-row"><strong>Before</strong><p>The coding agent works. The builder waits, scrolls, and inherits a black box.</p></div>
-            <div class="contrast-row"><strong>With Osmosis</strong><p>The same wait becomes a small, answerable lesson tied to the real work.</p></div>
+            <div class="contrast-row"><strong>Before</strong><p>The coding agent works. The builder waits, scrolls, and inherits no durable view of the concepts that surfaced.</p></div>
+            <div class="contrast-row"><strong>With Osmosis</strong><p>The same wait adds answerable evidence to a map. It is not an exhaustive repository or dependency scan.</p></div>
           </div>
         </div>
-        <div class="foot"><span>Automatic trigger · local-first wall · deliberate learning</span><span>Osmosis</span></div>
+        <div class="foot"><span>Automatic trigger · local-first wall · evidence, not exhaustive scanning</span><span>Osmosis</span></div>
       </section>
 
       <section class="slide light" data-theme="light" data-screen-label="04 Flow" aria-label="Slide 4: how Osmosis works">
-        <div class="chrome"><span>From real work to remembered knowledge</span><span>04 / 10</span></div>
+        <div class="chrome"><span>Observe the work · map surfaced concepts · add evidence</span><span>04 / 10</span></div>
         <div class="flow-wrap">
           <div style="width:100%">
-            <h2 class="title animate" style="margin-bottom:clamp(30px,5vh,58px)">The lesson starts with evidence, not a generic syllabus.</h2>
+            <h2 class="title animate" style="margin-bottom:clamp(30px,5vh,58px)">Observe the work. Map the concepts that surface. Add evidence through interaction.</h2>
             <div class="flow animate">
-              <div class="flow-step"><span class="step-number">01 · OBSERVE</span><strong>Agent activity</strong><p>MCP reports or experimental local rollout observation.</p></div>
-              <div class="flow-step"><span class="step-number">02 · WARM UP</span><strong>Instant card</strong><p>A local warmup can appear in about two seconds in the live demo.</p></div>
-              <div class="flow-step"><span class="step-number">03 · EXPLAIN</span><strong>Full lesson</strong><p>Codex generates a provenance-linked card from sanitized project context.</p></div>
-              <div class="flow-step"><span class="step-number">04 · ANSWER</span><strong>One question</strong><p>Short multiple choice keeps the builder active, not passive.</p></div>
-              <div class="flow-step"><span class="step-number">05 · REMEMBER</span><strong>Mastery profile</strong><p>Correct answers light the trail and prevent redundant lessons.</p></div>
+              <div class="flow-step"><span class="step-number">01 · OBSERVE</span><strong>Bounded activity</strong><p>MCP reports or experimental local rollout observation.</p></div>
+              <div class="flow-step"><span class="step-number">02 · SURFACE</span><strong>Project concept</strong><p>A relevant, provenance-labelled concept is selected for the map—not every file or dependency.</p></div>
+              <div class="flow-step"><span class="step-number">03 · EVIDENCE</span><strong>Warmup or full card</strong><p>A warmup can orient in about two seconds. It changes neither mastery nor the map; a full lesson asks for evidence.</p></div>
+              <div class="flow-step"><span class="step-number">04 · MAP</span><strong>Demonstrated understanding</strong><p>Answer a full lesson correctly; the map records it and avoids duplicate concepts across projects.</p></div>
             </div>
           </div>
         </div>
         <p class="flow-note animate">In this submission’s recording environment, GPT‑5.6 Terra writes the generated Codex-provider lesson; the runtime provider otherwise follows the runner’s local Codex model configuration.</p>
-        <div class="foot"><span>Fast path: catalogued warmup · rich path: Codex generation</span><span>Real context stays local first</span></div>
+        <div class="foot"><span>Warmups orient only · full lesson answers add evidence</span><span>Real context stays local first</span></div>
       </section>
 
       <section class="slide dark" data-theme="dark" data-screen-label="05 Honesty" aria-label="Slide 5: honest by design">
@@ -292,11 +291,11 @@
         <div class="chrome"><span>Learning should outlive the repo</span><span>06 / 10</span></div>
         <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
           <p class="eyebrow animate">Cross-project mastery</p>
-          <h2 class="title animate">What you learn building Project A should help in Project B.</h2>
+          <h2 class="title animate">The concept map travels with the learner, not the repository.</h2>
           <div class="mastery-path animate">
             <div class="project-stage"><span class="stage-tag">Project A</span><strong>Animation loop</strong><p>Answer correctly. The learning trail lights up.</p></div>
             <div class="path-arrow" aria-hidden="true">→</div>
-            <div class="project-stage profile"><span class="mastery-dot" aria-hidden="true">✓</span><span class="stage-tag">Shared profile</span><strong>Mastered</strong><p>The learner owns this knowledge, not just one project.</p></div>
+            <div class="project-stage profile"><span class="mastery-dot" aria-hidden="true">✓</span><span class="stage-tag">Shared profile</span><strong>Demonstrated</strong><p>The learner owns this demonstrated understanding, not just one project.</p></div>
             <div class="path-arrow" aria-hidden="true">→</div>
             <div class="project-stage"><span class="stage-tag">Project B</span><strong>Same concept</strong><p>Osmosis filters it out instead of drilling a mastered idea again.</p><span class="skip-stamp">Already mastered · skipped</span></div>
           </div>
@@ -353,17 +352,17 @@
         <div class="chrome"><span>Different trigger · different learner · durable memory</span><span>09 / 10</span></div>
         <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
           <p class="eyebrow animate">The adjacent space</p>
-          <h2 class="title animate">Osmosis is built for the person waiting on the code, not only the engineer reviewing it.</h2>
+          <h2 class="title animate">Not a quiz generator: a project concept map with cross-project demonstrated mastery.</h2>
           <table class="comparison animate">
             <thead><tr><th>Product</th><th>When it teaches</th><th>Who it serves</th><th>What persists</th></tr></thead>
             <tbody>
               <tr><td>learn-codebase</td><td>Manually invoked</td><td>Socratic codebase tutor for engineers</td><td>A guided conversation</td></tr>
               <tr><td>Aisance</td><td>PR / merge gate</td><td>Engineers proving they understand a diff</td><td>A passing gate</td></tr>
               <tr><td>Contral</td><td>Live while coding</td><td>People learning to become developers</td><td>In-context teaching</td></tr>
-              <tr class="osmosis"><td>Osmosis</td><td>Automatically in the agent’s wait window</td><td>Non-technical builders who cannot read the code yet</td><td>Multiple-choice mastery across projects</td></tr>
+              <tr class="osmosis"><td>Osmosis</td><td>Automatically in the agent’s wait window</td><td>Non-technical builders who cannot read the code yet</td><td>Project concept map + cross-project demonstrated mastery</td></tr>
             </tbody>
           </table>
-          <p class="comparison-note animate">Positioning reflects public product descriptions reviewed for this submission. Osmosis does not claim to replace code review, tutoring, or IDE education.</p>
+          <p class="comparison-note animate">Not a quiz app. Questions are how the map gains evidence: surfaced project concepts and demonstrated understanding. It is not an exhaustive repository map, or a replacement for code review, tutoring, or IDE education.</p>
         </div>
         <div class="foot"><span>Same AI acceleration · a different learning moment</span><span>Education track</span></div>
       </section>
@@ -372,7 +371,7 @@
         <div class="close-copy">
           <div class="wordmark animate">OSMOSIS</div>
           <h2 class="display animate">Vibe coding should make you smarter, not dumber.</h2>
-          <p class="subtitle animate">Let the work your agent is already doing become the curriculum you carry forward.</p>
+          <p class="subtitle animate">Carry forward a living map of the project concepts your AI surfaced—and the understanding you demonstrated.</p>
         </div>
         <div class="foot" style="width:100%"><span>OpenAI Build Week · Education</span><span>github.com/maxi-max-dev/osmosis</span></div>
       </section>

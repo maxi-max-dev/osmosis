@@ -1,6 +1,6 @@
 # Osmosis
 
-Osmosis turns the time you spend waiting for an AI coding agent into short lessons about the technology it is using in your project. It advances AI education for non-technical builders by turning their own projects into the curriculum.
+Osmosis builds a living map of the project concepts your AI surfaces—and what you have demonstrated you understand—then uses the agent’s wait time for short lessons that add evidence to that map.
 
 This is a plain-JavaScript, local-first MCP server and browser UI built for the OpenAI Build Week Education track.
 
