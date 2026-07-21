@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#fff7ea" />
+    <title>Osmosis — OpenAI Build Week pitch</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #fff7ea;
+        --surface: #fffdf8;
+        --surface-warm: #fff2dc;
+        --surface-soft: #f5ead6;
+        --ink: #26332e;
+        --ink-strong: #18231f;
+        --muted: #606860;
+        --muted-soft: #879089;
+        --line: #dfd2bd;
+        --line-strong: #cbb99a;
+        --coral: #ef7657;
+        --coral-deep: #d95e42;
+        --teal: #257e70;
+        --teal-deep: #1d655a;
+        --teal-soft: #dff3ed;
+        --gold: #c9972e;
+        --gold-soft: #fff1c9;
+        --blue: #4f7dbd;
+        --blue-soft: #e3efff;
+        --green: #2d9a66;
+        --green-soft: #e2f7e9;
+        --red: #c8535e;
+        --red-soft: #ffe6e6;
+        --night: #18231f;
+        --night-soft: #24312c;
+        --night-copy: #f7f0e4;
+        --night-muted: #c2ccc6;
+        --shadow: 0 22px 54px rgba(80, 58, 29, .12);
+        --shadow-dark: 0 28px 70px rgba(0, 0, 0, .22);
+        --radius: 26px;
+        --radius-sm: 14px;
+        --sans: ui-rounded, "SF Pro Rounded", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+        --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      }
+
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; overflow: hidden; }
+      body { background: var(--night); color: var(--ink); font-family: var(--sans); text-wrap: pretty; }
+      button { font: inherit; }
+      button:focus-visible, a:focus-visible { outline: 3px solid var(--coral); outline-offset: 4px; }
+      .sr-only { clip: rect(0 0 0 0); clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
+
+      #deck { display: flex; height: 100%; transform: translateX(0); transition: transform 620ms cubic-bezier(.2, .78, .24, 1); width: max-content; will-change: transform; }
+      .slide { display: flex; flex: 0 0 100vw; flex-direction: column; height: 100vh; min-height: 100vh; overflow: hidden; padding: clamp(28px, 5vw, 82px) clamp(28px, 6.4vw, 110px) clamp(26px, 3.2vw, 54px); position: relative; }
+      .slide.light { background: var(--bg); color: var(--ink); }
+      .slide.dark { background: var(--night); color: var(--night-copy); }
+      .slide::before { background: var(--coral); border-radius: 999px; content: ""; height: 9px; left: clamp(28px, 6.4vw, 110px); opacity: 0; position: absolute; top: clamp(28px, 5vw, 82px); transform: scaleX(.25); transform-origin: left; transition: opacity 400ms ease 80ms, transform 520ms ease 80ms; width: clamp(60px, 7vw, 132px); }
+      .slide.active::before { opacity: 1; transform: scaleX(1); }
+      .slide.dark::before { background: var(--gold); }
+
+      .chrome, .foot { align-items: center; display: flex; font-family: var(--mono); font-size: clamp(.64rem, .78vw, .9rem); justify-content: space-between; letter-spacing: .1em; text-transform: uppercase; }
+      .chrome { color: var(--muted); margin-bottom: clamp(18px, 3vh, 40px); padding-top: clamp(13px, 2vh, 23px); }
+      .dark .chrome { color: var(--night-muted); }
+      .foot { color: var(--muted-soft); margin-top: auto; padding-top: clamp(18px, 3vh, 36px); }
+      .dark .foot { color: var(--night-muted); }
+      .eyebrow { color: var(--teal); font-family: var(--mono); font-size: clamp(.7rem, .92vw, 1rem); font-weight: 800; letter-spacing: .12em; margin: 0 0 clamp(12px, 1.5vw, 22px); text-transform: uppercase; }
+      .dark .eyebrow { color: var(--gold); }
+      h1, h2, h3, p { margin-top: 0; }
+      .display { font-size: clamp(3rem, 6.7vw, 8rem); font-weight: 850; letter-spacing: -.065em; line-height: .98; margin: 0; max-width: 11ch; }
+      .title { font-size: clamp(2.25rem, 4.5vw, 5.25rem); font-weight: 850; letter-spacing: -.055em; line-height: 1.02; margin: 0; max-width: 18ch; }
+      .subtitle { color: var(--muted); font-size: clamp(1.14rem, 1.55vw, 1.85rem); line-height: 1.5; margin: clamp(18px, 3vh, 36px) 0 0; max-width: 42ch; }
+      .dark .subtitle { color: var(--night-muted); }
+      .copy { color: var(--muted); font-size: clamp(1.05rem, 1.32vw, 1.58rem); line-height: 1.55; margin: 0; max-width: 40ch; }
+      .dark .copy { color: var(--night-muted); }
+      .small { font-size: clamp(.78rem, .95vw, 1.06rem); line-height: 1.45; }
+      .accent { color: var(--coral); }
+      .gold { color: var(--gold); }
+      .teal { color: var(--teal); }
+      .dark .teal { color: #85d7c7; }
+
+      .hero { align-items: flex-start; justify-content: center; }
+      .hero .hero-copy { margin-top: auto; max-width: min(100%, 1050px); }
+      .hero .display { max-width: 12.5ch; }
+      .hero-mark { align-items: center; background: var(--coral); border-radius: 50%; color: var(--surface); display: inline-flex; font-size: clamp(1.7rem, 2.2vw, 2.8rem); font-weight: 900; height: clamp(48px, 5vw, 76px); justify-content: center; margin-bottom: clamp(25px, 4vh, 52px); width: clamp(48px, 5vw, 76px); }
+      .hero-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: clamp(27px, 4vh, 48px); }
+      .hero-meta span { border: 1px solid rgba(247, 240, 228, .28); border-radius: 999px; color: var(--night-muted); font-family: var(--mono); font-size: clamp(.68rem, .82vw, .92rem); letter-spacing: .05em; padding: 8px 11px; }
+
+      .evidence-grid, .split-grid, .architecture-grid, .collaboration-grid { align-items: center; display: grid; flex: 1; gap: clamp(28px, 6vw, 110px); min-height: 0; }
+      .evidence-grid { grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); }
+      .split-grid { grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); }
+      .architecture-grid { grid-template-columns: minmax(0, .95fr) minmax(0, 1.05fr); }
+      .collaboration-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+      .stat { color: var(--coral); font-size: clamp(7.8rem, 18vw, 19rem); font-weight: 880; letter-spacing: -.1em; line-height: .8; }
+      .stat-caption { color: var(--ink-strong); font-size: clamp(1.45rem, 2.4vw, 3rem); font-weight: 820; letter-spacing: -.04em; line-height: 1.08; margin: clamp(20px, 3vh, 40px) 0 0; max-width: 15ch; }
+      .source-note { color: var(--muted); font-family: var(--mono); font-size: clamp(.72rem, .82vw, .92rem); line-height: 1.45; margin-top: clamp(22px, 4vh, 50px); max-width: 50ch; }
+      .evidence-list { display: grid; gap: clamp(20px, 3.6vh, 42px); margin: 0; padding: 0; }
+      .evidence-list li { display: grid; gap: 7px; list-style: none; }
+      .evidence-list strong { color: var(--ink-strong); font-size: clamp(1.2rem, 1.75vw, 2.1rem); letter-spacing: -.035em; }
+      .evidence-list span { color: var(--muted); font-size: clamp(1rem, 1.2vw, 1.4rem); line-height: 1.45; max-width: 35ch; }
+      .evidence-list .index { color: var(--coral); font-family: var(--mono); font-size: .8em; letter-spacing: .08em; }
+
+      .wait-contrast { display: grid; gap: clamp(16px, 2vh, 26px); margin-top: clamp(32px, 5vh, 58px); max-width: 900px; }
+      .contrast-row { align-items: center; display: grid; gap: clamp(16px, 3vw, 42px); grid-template-columns: minmax(130px, .65fr) 2fr; }
+      .contrast-row strong { color: var(--night-copy); font-family: var(--mono); font-size: clamp(.72rem, .9vw, 1rem); letter-spacing: .08em; text-transform: uppercase; }
+      .contrast-row p { color: var(--night-muted); font-size: clamp(1.12rem, 1.45vw, 1.7rem); line-height: 1.35; margin: 0; }
+      .contrast-row:last-child strong { color: var(--gold); }
+      .contrast-row:last-child p { color: var(--night-copy); }
+
+      .flow-wrap { align-items: center; display: flex; flex: 1; justify-content: center; }
+      .flow { display: grid; gap: clamp(10px, 2vw, 28px); grid-template-columns: repeat(5, minmax(0, 1fr)); max-width: 1500px; width: 100%; }
+      .flow-step { min-width: 0; padding-top: clamp(12px, 2vh, 24px); position: relative; }
+      .flow-step:not(:last-child)::after { color: var(--line-strong); content: "→"; font-size: clamp(1.5rem, 2.4vw, 3rem); position: absolute; right: clamp(-19px, -1.8vw, -8px); top: clamp(17px, 2.2vh, 30px); }
+      .step-number { color: var(--coral); font-family: var(--mono); font-size: clamp(.72rem, .85vw, .95rem); font-weight: 800; letter-spacing: .1em; }
+      .flow-step strong { color: var(--ink-strong); display: block; font-size: clamp(1.22rem, 1.8vw, 2.2rem); letter-spacing: -.04em; line-height: 1.12; margin-top: clamp(12px, 1.8vh, 22px); }
+      .flow-step p { color: var(--muted); font-size: clamp(.93rem, 1.1vw, 1.28rem); line-height: 1.45; margin: 10px 0 0; }
+      .flow-step:nth-child(2) .step-number { color: var(--gold); }
+      .flow-step:nth-child(3) .step-number { color: var(--blue); }
+      .flow-step:nth-child(4) .step-number { color: var(--green); }
+      .flow-step:nth-child(5) .step-number { color: var(--teal); }
+      .flow-note { border-left: 4px solid var(--gold); color: var(--muted); font-size: clamp(.85rem, 1vw, 1.15rem); line-height: 1.45; margin: 0 auto; max-width: 70ch; padding-left: 15px; }
+
+      .ledger { display: grid; gap: 10px; margin-top: clamp(25px, 4vh, 44px); }
+      .ledger-row { align-items: center; border-bottom: 1px solid rgba(247, 240, 228, .18); display: grid; gap: 15px; grid-template-columns: minmax(105px, .43fr) minmax(0, 1fr) auto; padding: clamp(10px, 1.7vh, 18px) 0; }
+      .ledger-row code { color: var(--gold); font-family: var(--mono); font-size: clamp(.72rem, .85vw, .95rem); }
+      .ledger-row span { color: var(--night-copy); font-size: clamp(.98rem, 1.2vw, 1.45rem); line-height: 1.35; }
+      .ledger-row small { border: 1px solid rgba(247, 240, 228, .28); border-radius: 999px; color: var(--night-muted); font-family: var(--mono); font-size: clamp(.58rem, .67vw, .76rem); letter-spacing: .06em; padding: 5px 7px; text-transform: uppercase; }
+      .ledger-row.is-suppressed code { color: #f5ab92; }
+      .ledger-row.is-suppressed small { border-color: rgba(245, 171, 146, .6); color: #f5ab92; }
+      .ledger-row.is-delivered code { color: #85d7c7; }
+      .ledger-row.is-delivered small { border-color: rgba(133, 215, 199, .6); color: #85d7c7; }
+
+      .mastery-path { align-items: stretch; display: grid; gap: clamp(12px, 2.4vw, 38px); grid-template-columns: 1fr auto 1fr auto 1fr; margin-top: clamp(30px, 5vh, 58px); }
+      .project-stage { display: flex; flex-direction: column; justify-content: center; min-height: clamp(210px, 31vh, 330px); }
+      .project-stage .stage-tag { color: var(--teal); font-family: var(--mono); font-size: clamp(.7rem, .85vw, .95rem); font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+      .project-stage strong { color: var(--ink-strong); font-size: clamp(1.65rem, 2.7vw, 3.2rem); letter-spacing: -.05em; line-height: 1; margin-top: 14px; }
+      .project-stage p { color: var(--muted); font-size: clamp(.98rem, 1.2vw, 1.42rem); line-height: 1.42; margin: 13px 0 0; max-width: 19ch; }
+      .project-stage.profile { background: var(--gold-soft); border: 1px solid var(--gold); border-radius: var(--radius); padding: clamp(22px, 3vw, 44px); }
+      .project-stage.profile .stage-tag, .project-stage.profile strong { color: #78500a; }
+      .project-stage.profile .mastery-dot { align-items: center; background: var(--gold); border-radius: 50%; box-shadow: 0 0 0 8px rgba(201, 151, 46, .16); color: var(--surface); display: flex; font-size: clamp(1.3rem, 2vw, 2rem); font-weight: 900; height: clamp(42px, 4vw, 64px); justify-content: center; margin-bottom: 15px; width: clamp(42px, 4vw, 64px); }
+      .path-arrow { align-items: center; color: var(--line-strong); display: flex; font-size: clamp(1.8rem, 3vw, 3.8rem); }
+      .skip-stamp { color: #78500a; font-family: var(--mono); font-size: clamp(.72rem, .85vw, .95rem); font-weight: 900; letter-spacing: .08em; margin-top: 16px; text-transform: uppercase; }
+
+      .arch-list { display: grid; gap: clamp(13px, 2.2vh, 24px); margin: clamp(24px, 4vh, 48px) 0 0; }
+      .arch-row { align-items: baseline; border-bottom: 1px solid rgba(247, 240, 228, .16); display: grid; gap: 16px; grid-template-columns: minmax(115px, .45fr) 1fr; padding-bottom: clamp(13px, 2.2vh, 23px); }
+      .arch-row strong { color: var(--gold); font-family: var(--mono); font-size: clamp(.72rem, .85vw, .94rem); letter-spacing: .1em; text-transform: uppercase; }
+      .arch-row span { color: var(--night-copy); font-size: clamp(1rem, 1.32vw, 1.55rem); line-height: 1.35; }
+      .architecture-badge { align-items: center; background: var(--night-soft); border: 1px solid rgba(247, 240, 228, .17); border-radius: var(--radius); display: flex; flex-direction: column; justify-content: center; min-height: clamp(260px, 44vh, 480px); padding: clamp(24px, 4vw, 58px); text-align: center; }
+      .architecture-badge strong { color: var(--gold); font-size: clamp(5rem, 12vw, 12rem); font-weight: 900; letter-spacing: -.1em; line-height: .8; }
+      .architecture-badge span { color: var(--night-copy); font-size: clamp(1.35rem, 2vw, 2.35rem); font-weight: 820; letter-spacing: -.04em; margin-top: 24px; }
+      .architecture-badge small { color: var(--night-muted); font-family: var(--mono); font-size: clamp(.72rem, .9vw, 1rem); line-height: 1.5; margin-top: 16px; max-width: 29ch; }
+
+      .responsibility { padding: clamp(8px, 1vw, 18px) 0; }
+      .responsibility h3 { font-size: clamp(1.6rem, 2.6vw, 3.25rem); letter-spacing: -.055em; margin: 0; }
+      .responsibility ul { display: grid; gap: clamp(12px, 2vh, 21px); list-style: none; margin: clamp(28px, 4vh, 44px) 0 0; padding: 0; }
+      .responsibility li { color: var(--muted); font-size: clamp(1.03rem, 1.32vw, 1.54rem); line-height: 1.4; padding-left: 23px; position: relative; }
+      .responsibility li::before { background: var(--coral); border-radius: 50%; content: ""; height: 9px; left: 0; position: absolute; top: .55em; width: 9px; }
+      .responsibility.codex { border-left: 1px solid var(--line); padding-left: clamp(26px, 4vw, 64px); }
+      .responsibility.codex li::before { background: var(--teal); }
+      .session-proof { background: var(--surface-warm); border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--ink-strong); font-family: var(--mono); font-size: clamp(.66rem, .82vw, .92rem); letter-spacing: .04em; margin-top: clamp(28px, 4vh, 48px); overflow-wrap: anywhere; padding: 13px 15px; }
+      .model-note { border-left: 4px solid var(--gold); color: var(--muted); font-size: clamp(.86rem, 1.05vw, 1.22rem); line-height: 1.45; margin-top: clamp(22px, 4vh, 44px); max-width: 70ch; padding-left: 14px; }
+
+      .comparison { border-collapse: separate; border-spacing: 0 clamp(9px, 1.25vh, 14px); margin: clamp(24px, 4vh, 50px) auto 0; max-width: 1600px; width: 100%; }
+      .comparison th, .comparison td { padding: clamp(12px, 1.7vw, 22px); text-align: left; vertical-align: top; }
+      .comparison th { color: var(--night-muted); font-family: var(--mono); font-size: clamp(.62rem, .72vw, .82rem); font-weight: 600; letter-spacing: .1em; text-transform: uppercase; }
+      .comparison td { background: rgba(247, 240, 228, .07); color: var(--night-copy); font-size: clamp(.88rem, 1.06vw, 1.24rem); line-height: 1.37; }
+      .comparison td:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); font-weight: 850; letter-spacing: -.02em; }
+      .comparison td:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+      .comparison tr.osmosis td { background: var(--gold-soft); color: #4b3510; }
+      .comparison tr.osmosis td:first-child { color: #78500a; }
+      .comparison-note { color: var(--night-muted); font-size: clamp(.76rem, .88vw, 1rem); line-height: 1.45; margin: clamp(17px, 2.5vh, 27px) auto 0; max-width: 1100px; }
+
+      .close { align-items: center; justify-content: center; text-align: center; }
+      .close .close-copy { display: grid; justify-items: center; max-width: 1100px; }
+      .close .display { max-width: 14ch; }
+      .close .wordmark { color: var(--gold); font-family: var(--mono); font-size: clamp(.85rem, 1.05vw, 1.18rem); font-weight: 900; letter-spacing: .23em; margin-bottom: clamp(26px, 4vh, 50px); }
+      .close .subtitle { max-width: 36ch; }
+
+      .animate { opacity: 0; transform: translateY(18px); transition: opacity 430ms ease, transform 540ms cubic-bezier(.2, .78, .24, 1); }
+      .slide.active .animate { opacity: 1; transform: translateY(0); }
+      .slide.active .animate:nth-child(1) { transition-delay: 80ms; }
+      .slide.active .animate:nth-child(2) { transition-delay: 165ms; }
+      .slide.active .animate:nth-child(3) { transition-delay: 250ms; }
+      .slide.active .animate:nth-child(4) { transition-delay: 335ms; }
+      .slide.active .animate:nth-child(5) { transition-delay: 420ms; }
+
+      #nav { align-items: center; background: rgba(24, 35, 31, .9); border: 1px solid rgba(255,255,255,.15); border-radius: 999px; bottom: clamp(18px, 2.2vh, 31px); display: flex; gap: 7px; left: 50%; padding: 8px 12px; position: fixed; transform: translateX(-50%); z-index: 4; }
+      #nav button { background: rgba(255,255,255,.36); border: 0; border-radius: 999px; cursor: pointer; height: 7px; padding: 0; transition: background 160ms ease, width 160ms ease; width: 7px; }
+      #nav button[aria-current="true"] { background: var(--gold); width: 24px; }
+      #counter { bottom: clamp(19px, 2.3vh, 33px); color: var(--night-muted); font-family: var(--mono); font-size: clamp(.65rem, .78vw, .87rem); letter-spacing: .08em; position: fixed; right: clamp(24px, 3vw, 45px); z-index: 5; }
+      .click-hint { bottom: clamp(19px, 2.3vh, 33px); color: var(--night-muted); font-family: var(--mono); font-size: clamp(.6rem, .72vw, .8rem); left: clamp(24px, 3vw, 45px); letter-spacing: .08em; position: fixed; text-transform: uppercase; z-index: 5; }
+
+      @media (max-width: 850px) {
+        .slide { padding: 46px 28px 54px; }
+        .slide::before { left: 28px; top: 46px; }
+        .evidence-grid, .split-grid, .architecture-grid, .collaboration-grid { gap: 24px; grid-template-columns: 1fr; overflow-y: auto; padding: 16px 0; }
+        .flow { gap: 16px; grid-template-columns: 1fr; }
+        .flow-step { display: grid; gap: 9px; grid-template-columns: 42px minmax(0, 1fr); }
+        .flow-step strong { margin-top: 0; }.flow-step p { grid-column: 2; margin-top: -3px; }
+        .flow-step:not(:last-child)::after { bottom: -25px; left: 12px; right: auto; top: auto; transform: rotate(90deg); }
+        .mastery-path { grid-template-columns: 1fr; }.path-arrow { justify-content: center; transform: rotate(90deg); }
+        .project-stage { min-height: auto; }.project-stage.profile { min-height: auto; }
+        .comparison { display: block; overflow-x: auto; white-space: normal; }.comparison th, .comparison td { min-width: 140px; }
+        .hero-meta { margin-bottom: 54px; }
+      }
+      @media (prefers-reduced-motion: reduce) { #deck, .slide::before, .animate, #nav button { transition: none !important; } }
+    </style>
+  </head>
+  <body>
+    <main id="deck" aria-live="polite">
+      <section class="slide dark hero active" data-theme="dark" data-screen-label="01 Hook" aria-label="Slide 1: the hook">
+        <div class="hero-copy">
+          <div class="hero-mark animate" aria-hidden="true">O</div>
+          <p class="eyebrow animate">OpenAI Build Week · Education</p>
+          <h1 class="display animate">My AI writes all my code.<br />I still can’t read most of it.</h1>
+          <div class="hero-meta animate">
+            <span>60 shipped projects</span>
+            <span>one non-technical builder</span>
+            <span>one growing comprehension gap</span>
+          </div>
+        </div>
+        <div class="foot"><span>Osmosis</span><span>Max · July 2026</span></div>
+      </section>
+
+      <section class="slide light" data-theme="light" data-screen-label="02 Evidence" aria-label="Slide 2: the comprehension debt evidence">
+        <div class="chrome"><span>Comprehension debt</span><span>02 / 10</span></div>
+        <div class="evidence-grid">
+          <div class="animate">
+            <div class="stat">17%</div>
+            <p class="stat-caption">lower immediate comprehension after AI-assisted coding</p>
+            <p class="source-note">Anthropic randomized study · 52 mostly junior software engineers learning a new Python library · 2025</p>
+          </div>
+          <ol class="evidence-list animate">
+            <li><span class="index">THE GAP</span><strong>Shipping is getting easier.</strong><span>Understanding what shipped is not keeping up.</span></li>
+            <li><span class="index">THE COST</span><strong>More output can hide less ownership.</strong><span>The code works, but the builder cannot explain, change, or trust it.</span></li>
+            <li><span class="index">THE OPENING</span><strong>The agent already gives us a wait window.</strong><span>That window can become retrieval practice instead of dead time.</span></li>
+          </ol>
+        </div>
+        <div class="foot"><span>Source: anthropic.com/research/AI-assistance-coding-skills</span><span>One study, not a universal claim</span></div>
+      </section>
+
+      <section class="slide dark" data-theme="dark" data-screen-label="03 Reframe" aria-label="Slide 3: the solution reframe">
+        <div class="chrome"><span>The wait is the product surface</span><span>03 / 10</span></div>
+        <div style="display:flex;flex:1;flex-direction:column;justify-content:center">
+          <p class="eyebrow animate">Osmosis</p>
+          <h2 class="title animate">Learn while your agent works.</h2>
+          <p class="subtitle animate">Not another course to remember later. A question about the exact technology your agent is using now.</p>
+          <div class="wait-contrast animate">
+            <div class="contrast-row"><strong>Before</strong><p>The coding agent works. The builder waits, scrolls, and inherits a black box.</p></div>
+            <div class="contrast-row"><strong>With Osmosis</strong><p>The same wait becomes a small, answerable lesson tied to the real work.</p></div>
+          </div>
+        </div>
+        <div class="foot"><span>Automatic trigger · local-first wall · deliberate learning</span><span>Osmosis</span></div>
+      </section>
+
+      <section class="slide light" data-theme="light" data-screen-label="04 Flow" aria-label="Slide 4: how Osmosis works">
+        <div class="chrome"><span>From real work to remembered knowledge</span><span>04 / 10</span></div>
+        <div class="flow-wrap">
+          <div style="width:100%">
+            <h2 class="title animate" style="margin-bottom:clamp(30px,5vh,58px)">The lesson starts with evidence, not a generic syllabus.</h2>
+            <div class="flow animate">
+              <div class="flow-step"><span class="step-number">01 · OBSERVE</span><strong>Agent activity</strong><p>MCP reports or experimental local rollout observation.</p></div>
+              <div class="flow-step"><span class="step-number">02 · WARM UP</span><strong>Instant card</strong><p>A local warmup can appear in about two seconds in the live demo.</p></div>
+              <div class="flow-step"><span class="step-number">03 · EXPLAIN</span><strong>Full lesson</strong><p>Codex generates a provenance-linked card from sanitized project context.</p></div>
+              <div class="flow-step"><span class="step-number">04 · ANSWER</span><strong>One question</strong><p>Short multiple choice keeps the builder active, not passive.</p></div>
+              <div class="flow-step"><span class="step-number">05 · REMEMBER</span><strong>Mastery profile</strong><p>Correct answers light the trail and prevent redundant lessons.</p></div>
+            </div>
+          </div>
+        </div>
+        <p class="flow-note animate">In this submission’s recording environment, GPT‑5.6 Terra writes the generated Codex-provider lesson; the runtime provider otherwise follows the runner’s local Codex model configuration.</p>
+        <div class="foot"><span>Fast path: catalogued warmup · rich path: Codex generation</span><span>Real context stays local first</span></div>
+      </section>
+
+      <section class="slide dark" data-theme="dark" data-screen-label="05 Honesty" aria-label="Slide 5: honest by design">
+        <div class="chrome"><span>Honest by design</span><span>05 / 10</span></div>
+        <div class="split-grid">
+          <div class="animate">
+            <p class="eyebrow">No black box</p>
+            <h2 class="title">Every card says where it came from. Every missing card has a reason.</h2>
+            <p class="subtitle">The activity drawer is not decorative telemetry. It is a plain-language account of what the system observed, attempted, delivered, or deliberately suppressed.</p>
+          </div>
+          <div class="ledger animate" aria-label="Example Why no card ledger">
+            <div class="ledger-row"><code>observed</code><span>Codex ran a relevant tool</span><small>activity</small></div>
+            <div class="ledger-row"><code>waiting</code><span>Preparing a lesson from that context</span><small>queue</small></div>
+            <div class="ledger-row is-delivered"><code>delivered</code><span>Card placed in Now or Next</span><small>visible</small></div>
+            <div class="ledger-row is-suppressed"><code>suppressed</code><span>Already mastered, paused, or no safe match</span><small>why no card</small></div>
+          </div>
+        </div>
+        <div class="foot"><span>Provenance labels: reported by agent · observed change · observed activity</span><span>Truth is a feature</span></div>
+      </section>
+
+      <section class="slide light" data-theme="light" data-screen-label="06 Mastery" aria-label="Slide 6: cross project mastery">
+        <div class="chrome"><span>Learning should outlive the repo</span><span>06 / 10</span></div>
+        <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+          <p class="eyebrow animate">Cross-project mastery</p>
+          <h2 class="title animate">What you learn building Project A should help in Project B.</h2>
+          <div class="mastery-path animate">
+            <div class="project-stage"><span class="stage-tag">Project A</span><strong>Animation loop</strong><p>Answer correctly. The learning trail lights up.</p></div>
+            <div class="path-arrow" aria-hidden="true">→</div>
+            <div class="project-stage profile"><span class="mastery-dot" aria-hidden="true">✓</span><span class="stage-tag">Shared profile</span><strong>Mastered</strong><p>The learner owns this knowledge, not just one project.</p></div>
+            <div class="path-arrow" aria-hidden="true">→</div>
+            <div class="project-stage"><span class="stage-tag">Project B</span><strong>Same concept</strong><p>Osmosis filters it out instead of drilling a mastered idea again.</p><span class="skip-stamp">Already mastered · skipped</span></div>
+          </div>
+        </div>
+        <div class="foot"><span>Grow-only mastery · no duplicate concept cards</span><span>Gold means carried over</span></div>
+      </section>
+
+      <section class="slide dark" data-theme="dark" data-screen-label="07 Architecture" aria-label="Slide 7: technical architecture">
+        <div class="chrome"><span>Local-first technical architecture</span><span>07 / 10</span></div>
+        <div class="architecture-grid">
+          <div class="animate">
+            <p class="eyebrow">Designed for the messy parts</p>
+            <h2 class="title">A learning companion has to be trustworthy under real agent churn.</h2>
+            <div class="arch-list">
+              <div class="arch-row"><strong>MCP server</strong><span>Accepts explicit agent reports and exposes inline cards.</span></div>
+              <div class="arch-row"><strong>Ambient Watch</strong><span>Experimental opt-in tailer for local Codex rollout activity.</span></div>
+              <div class="arch-row"><strong>Owner broker</strong><span>One HTTP owner writes project channels, ledgers, and shared mastery.</span></div>
+              <div class="arch-row"><strong>Crash safety</strong><span>Durable event ledgers, reconciliation, and a cross-process profile lock.</span></div>
+            </div>
+          </div>
+          <div class="architecture-badge animate"><strong>186</strong><span>automated tests</span><small>Node core only · MCP stdout stays protocol-clean · record/replay remain deterministic</small></div>
+        </div>
+        <div class="foot"><span>Browser wall remains the primary form</span><span>Direct OpenAI API backend: reserved, not implemented</span></div>
+      </section>
+
+      <section class="slide light" data-theme="light" data-screen-label="08 Codex" aria-label="Slide 8: how Codex and GPT-5.6 were used">
+        <div class="chrome"><span>How it was built</span><span>08 / 10</span></div>
+        <div class="collaboration-grid">
+          <div class="responsibility animate">
+            <p class="eyebrow">Human owner</p>
+            <h3>Direction, boundaries, proof.</h3>
+            <ul>
+              <li>Set product direction and sliced the milestones.</li>
+              <li>Made every provider and privacy-boundary decision.</li>
+              <li>Ran acceptance and independent adversarial review on every delivery.</li>
+            </ul>
+          </div>
+          <div class="responsibility codex animate">
+            <p class="eyebrow">Codex</p>
+            <h3>Every product line, one primary session.</h3>
+            <ul>
+              <li>Implemented the MCP server, Studio, broker, tests, fixtures, and local runner.</li>
+              <li>In this submission environment, Codex ran on GPT‑5.6 Terra.</li>
+              <li>That same local Codex provider generated the recorded lesson cards.</li>
+            </ul>
+          </div>
+        </div>
+        <div class="session-proof animate">PRIMARY SESSION · 019f72d1-73d7-78d2-b2e3-5e4cf2a8cb77</div>
+        <p class="model-note animate">Runtime truth: Osmosis does not force a model. The `codex` provider inherits the runner’s local Codex model configuration. The direct OpenAI API backend is currently a stub, not a live fallback.</p>
+        <div class="foot"><span>Human judgment + Codex implementation</span><span>Auditable collaboration, not a one-shot prompt</span></div>
+      </section>
+
+      <section class="slide dark" data-theme="dark" data-screen-label="09 Difference" aria-label="Slide 9: product differentiation">
+        <div class="chrome"><span>Different trigger · different learner · durable memory</span><span>09 / 10</span></div>
+        <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+          <p class="eyebrow animate">The adjacent space</p>
+          <h2 class="title animate">Osmosis is built for the person waiting on the code, not only the engineer reviewing it.</h2>
+          <table class="comparison animate">
+            <thead><tr><th>Product</th><th>When it teaches</th><th>Who it serves</th><th>What persists</th></tr></thead>
+            <tbody>
+              <tr><td>learn-codebase</td><td>Manually invoked</td><td>Socratic codebase tutor for engineers</td><td>A guided conversation</td></tr>
+              <tr><td>Aisance</td><td>PR / merge gate</td><td>Engineers proving they understand a diff</td><td>A passing gate</td></tr>
+              <tr><td>Contral</td><td>Live while coding</td><td>People learning to become developers</td><td>In-context teaching</td></tr>
+              <tr class="osmosis"><td>Osmosis</td><td>Automatically in the agent’s wait window</td><td>Non-technical builders who cannot read the code yet</td><td>Multiple-choice mastery across projects</td></tr>
+            </tbody>
+          </table>
+          <p class="comparison-note animate">Positioning reflects public product descriptions reviewed for this submission. Osmosis does not claim to replace code review, tutoring, or IDE education.</p>
+        </div>
+        <div class="foot"><span>Same AI acceleration · a different learning moment</span><span>Education track</span></div>
+      </section>
+
+      <section class="slide dark close" data-theme="dark" data-screen-label="10 Close" aria-label="Slide 10: close">
+        <div class="close-copy">
+          <div class="wordmark animate">OSMOSIS</div>
+          <h2 class="display animate">Vibe coding should make you smarter, not dumber.</h2>
+          <p class="subtitle animate">Let the work your agent is already doing become the curriculum you carry forward.</p>
+        </div>
+        <div class="foot" style="width:100%"><span>OpenAI Build Week · Education</span><span>github.com/maxi-max-dev/osmosis</span></div>
+      </section>
+    </main>
+
+    <nav id="nav" aria-label="Slide navigation"></nav>
+    <div class="click-hint">Arrow keys / click to advance</div>
+    <div id="counter" aria-live="polite"></div>
+
+    <script>
+      (() => {
+        const deck = document.querySelector('#deck');
+        const slides = [...document.querySelectorAll('.slide')];
+        const nav = document.querySelector('#nav');
+        const counter = document.querySelector('#counter');
+        const storageKey = 'osmosis-pitch-slide';
+        let current = 0;
+
+        try {
+          const stored = Number.parseInt(localStorage.getItem(storageKey), 10);
+          if (Number.isInteger(stored) && stored >= 0 && stored < slides.length) current = stored;
+        } catch { /* file:// storage may be unavailable */ }
+
+        function renderNav() {
+          nav.replaceChildren();
+          slides.forEach((slide, index) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.setAttribute('aria-label', `Go to ${slide.dataset.screenLabel}`);
+            button.setAttribute('aria-current', String(index === current));
+            button.addEventListener('click', (event) => {
+              event.stopPropagation();
+              goTo(index);
+            });
+            nav.append(button);
+          });
+        }
+
+        function goTo(index) {
+          const next = Math.max(0, Math.min(slides.length - 1, index));
+          if (next === current) return;
+          current = next;
+          deck.style.transform = `translateX(-${current * 100}vw)`;
+          slides.forEach((slide, slideIndex) => slide.classList.toggle('active', slideIndex === current));
+          counter.textContent = `${String(current + 1).padStart(2, '0')} / ${String(slides.length).padStart(2, '0')}`;
+          renderNav();
+          try { localStorage.setItem(storageKey, String(current)); } catch { /* non-persistent file mode is fine */ }
+        }
+
+        document.addEventListener('keydown', (event) => {
+          if (['ArrowRight', 'ArrowDown', ' ', 'PageDown'].includes(event.key)) { event.preventDefault(); goTo(current + 1); }
+          if (['ArrowLeft', 'ArrowUp', 'PageUp'].includes(event.key)) { event.preventDefault(); goTo(current - 1); }
+          if (event.key === 'Home') { event.preventDefault(); goTo(0); }
+          if (event.key === 'End') { event.preventDefault(); goTo(slides.length - 1); }
+        });
+
+        document.addEventListener('click', (event) => {
+          if (event.target.closest('button, a, input, select, textarea')) return;
+          goTo(current + 1);
+        });
+
+        slides.forEach((slide, index) => slide.classList.toggle('active', index === current));
+        deck.style.transform = `translateX(-${current * 100}vw)`;
+        counter.textContent = `${String(current + 1).padStart(2, '0')} / ${String(slides.length).padStart(2, '0')}`;
+        renderNav();
+      })();
+    </script>
+  </body>
+</html>
